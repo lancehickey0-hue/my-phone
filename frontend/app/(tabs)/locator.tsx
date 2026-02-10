@@ -65,8 +65,10 @@ export default function LocatorScreen() {
   });
 
   const enabled = watch('enabled');
-  const wakePhrase = useMemo(() => normalize(watch('wake_phrase')), [watch]);
-  const stopPhrase = useMemo(() => normalize(watch('stop_phrase')), [watch]);
+  const wakePhraseRaw = watch('wake_phrase');
+  const stopPhraseRaw = watch('stop_phrase');
+  const wakePhrase = useMemo(() => normalize(wakePhraseRaw), [wakePhraseRaw]);
+  const stopPhrase = useMemo(() => normalize(stopPhraseRaw), [stopPhraseRaw]);
 
   useEffect(() => {
     if (!deviceId) return;
