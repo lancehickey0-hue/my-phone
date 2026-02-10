@@ -162,51 +162,110 @@ export default function HomeScreen() {
   }, [platform, refreshKey, setDeviceId, setSettings]);
 
   return (
-    <ScrollView
-      style={[styles.container, { paddingTop: insets.top + 8 }]}
-      contentContainerStyle={{ paddingBottom: insets.bottom + 24 }}
-    >
-      <View style={styles.header}>
-        <Text style={styles.title}>My Phone</Text>
-        <Text style={styles.subtitle}>Voice locator + smart assistant</Text>
-      </View>
+    <Pressable style={{ flex: 1 }} onPress={() => Keyboard.dismiss()}>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        style={[styles.container, { paddingTop: insets.top + 8 }]}
+      >
+        <ScrollView
+          contentContainerStyle={{ paddingBottom: insets.bottom + 24 }}
+          keyboardShouldPersistTaps="handled"
+        >
+          <View style={styles.header}>
+            <Text style={styles.title}>My Phone</Text>
+            <Text style={styles.subtitle}>Say your phrase. Find your phone. Ask anything.</Text>
+          </View>
 
-      <Card style={{ marginTop: 16 }}>
-        <Text style={styles.cardTitle}>Device</Text>
-        <Text style={styles.cardText}>Device ID: {deviceId ? deviceId.slice(0, 8) + '…' : '—'}</Text>
-        <Text style={styles.cardText}>Locator: {settings?.enabled ? 'Enabled' : 'Disabled'}</Text>
-        <Text style={styles.cardHint}>
-          Tip: Try saying “{settings?.wake_phrase ?? 'my phone where are you'}” while this app is open.
-        </Text>
-        {!!error && <Text style={styles.error}>{error}</Text>}
-        <PrimaryButton
-          title={booting ? 'Initializing…' : 'Refresh'}
-          onPress={() => {
-            setError(null);
-            setRefreshKey((k) => k + 1);
-          }}
-          loading={booting}
-          style={{ marginTop: 12 }}
-        />
-      </Card>
+          <View style={styles.visualWrap}>
+            <InfinityListeningVisual mode={visualMode} size={280} />
+            <Text style={styles.visualHint}>
+              {visualMode === 'thinking'
+                ? 'Listening…'
+                : listeningEnabled
+                  ? 'Always listening is enabled'
+                  : 'Listening is paused'}
+            </Text>
+          </View>
 
-      <Card style={{ marginTop: 16 }}>
-        <Text style={styles.cardTitle}>Permissions</Text>
-        <Text style={styles.cardText}>Microphone: required for voice commands</Text>
-        <Text style={styles.cardText}>Camera (torch): required for flashlight alert</Text>
-        <Text style={styles.cardHint}>
-          You can grant permissions inside the Locator tab.
-        </Text>
-      </Card>
+          <Card style={{ marginTop: 16 }}>
+            <ToggleRow
+              label="Always listening"
+              value={listeningEnabled}
+              onToggle={toggleAlwaysListening}
+              disabled={booting || !deviceId}
+              description="Turn off to save battery."
+            />
 
-      <Card style={{ marginTop: 16 }}>
-        <Text style={styles.cardTitle}>Limitations (MVP)</Text>
-        <Text style={styles.cardHint}>
-          Always-listening in background is Android-first and may need a custom dev build. iOS background hotword
-          has platform restrictions.
-        </Text>
-      </Card>
-    </ScrollView>
+            <View style={styles.rowBtns}>
+              <PrimaryButton
+                title="Test locator alert"
+                onPress={() => {
+                  // sends user to Locator tab for now
+                  setError(null);
+                }}
+                disabled={booting}
+                style={{ flex: 1 }}
+              />
+              <View style={{ width: 12 }} />
+              <PrimaryButton
+                title={booting ? '…' : 'Refresh'}
+                onPress={() => {
+                  setError(null);
+                  setRefreshKey((k) => k + 1);
+                }}
+                loading={booting}
+                variant="secondary"
+                style={{ width: 120 }}
+              />
+            </View>
+
+            {!!error && <Text style={[styles.error, { marginTop: 10 }]}>{error}</Text>}
+          </Card>
+
+          <Card style={{ marginTop: 16 }}>
+            <Text style={styles.cardTitle}>Chat</Text>
+            <Text style={styles.cardHint}>Keep context here. You’ll also see responses in this thread.</Text>
+
+            <View style={{ marginTop: 12 }}>
+              {chatMessages.slice(-6).map((m, idx) => (
+                <View
+                  key={`${idx}-${m.role}`}
+                  style={[styles.bubble, m.role === 'user' ? styles.bubbleUser : styles.bubbleAssistant]}
+                >
+                  <Text style={styles.bubbleText}>{m.content}</Text>
+                </View>
+              ))}
+            </View>
+
+            <View style={{ marginTop: 12 }}>
+              <TextInput
+                value={chatInput}
+                onChangeText={setChatInput}
+                placeholder="Message My Phone…"
+                placeholderTextColor={colors.subtext}
+                style={styles.chatInput}
+                multiline
+                maxLength={1200}
+              />
+              <PrimaryButton
+                title={chatLoading ? 'Sending…' : 'Send'}
+                onPress={sendChat}
+                disabled={!canSend}
+                loading={chatLoading}
+                style={{ marginTop: 10 }}
+              />
+            </View>
+          </Card>
+
+          <Card style={{ marginTop: 16 }}>
+            <Text style={styles.cardTitle}>Device</Text>
+            <Text style={styles.cardText}>Device ID: {deviceId ? deviceId.slice(0, 8) + '…' : '—'}</Text>
+            <Text style={styles.cardText}>Wake: “{settings?.wake_phrase ?? 'my phone where are you'}”</Text>
+            <Text style={styles.cardText}>Stop: “{settings?.stop_phrase ?? "i've found you"}”</Text>
+          </Card>
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </Pressable>
   );
 }
 
