@@ -16,7 +16,13 @@ import { Controller, useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { Audio } from 'expo-av';
-import { useSpeechRecognitionEvent, ExpoSpeechRecognitionModule } from 'expo-speech-recognition';
+import {
+  addSpeechListener,
+  isNativeSpeechRecognitionAvailable,
+  requestSpeechRecognitionPermissionsAsync,
+  startSpeechRecognition,
+  stopSpeechRecognition,
+} from '../../src/lib/speechRecognition';
 
 import Card from '../../src/components/Card';
 import PrimaryButton from '../../src/components/PrimaryButton';
