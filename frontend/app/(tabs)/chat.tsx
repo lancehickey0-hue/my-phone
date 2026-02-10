@@ -19,6 +19,7 @@ import { colors } from '../../src/theme/colors';
 import { api, apiPath } from '../../src/lib/api';
 import { useDeviceStore } from '../../src/stores/deviceStore';
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 type Msg = {
   role: 'user' | 'assistant';
   content: string;
