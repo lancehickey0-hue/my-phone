@@ -68,11 +68,8 @@ export default function HomeScreen() {
         <PrimaryButton
           title={booting ? 'Initializing…' : 'Refresh'}
           onPress={() => {
-            // Trigger the effect by re-running registration quickly
-            // simplest: reload app state
             setError(null);
-            setBooting(true);
-            setTimeout(() => setBooting(false), 250);
+            setRefreshKey((k) => k + 1);
           }}
           loading={booting}
           style={{ marginTop: 12 }}
