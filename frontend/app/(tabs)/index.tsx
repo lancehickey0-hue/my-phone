@@ -44,9 +44,36 @@ export default function HomeScreen() {
 
   const canSend = useMemo(() => chatInput.trim().length > 0 && !chatLoading && !!deviceId, [chatInput, chatLoading, deviceId]);
 
+  // Register device + fetch default locator settings
   useEffect(() => {
     let mounted = true;
+    (async () => {
+      try {
+        setBooting(true);
+        const id = await getOrCreateDeviceId();
+        if (!mounted) return;
+        setDeviceId(id);
 
+        const res = await api.post(apiPath('/devices/register'), {
+          device_id: id,
+          platform,
+        });
+        if (!mounted) return;
+        setSettings(res.data.settings);
+        setError(null);
+      } catch (e: any) {
+        setError(e?.message ?? 'Failed to register device');
+      } finally {
+        if (mounted) setBooting(false);
+      }
+    })();
+
+    return () => {
+      mounted = false;
+    };
+  }, [platform, refreshKey, setDeviceId, setSettings]);
+
+  // Hydrate recent chat history for context
   useEffect(() => {
     if (!deviceId) return;
     let mounted = true;
@@ -66,8 +93,8 @@ export default function HomeScreen() {
     };
   }, [deviceId]);
 
+  // Visual reacts to listening toggle + chat state
   useEffect(() => {
-    // Visual reacts to listening toggle + chat state
     if (chatLoading) {
       setVisualMode('thinking');
     } else if (listeningEnabled) {
@@ -80,6 +107,7 @@ export default function HomeScreen() {
   async function toggleAlwaysListening() {
     if (!deviceId) return;
     const next = !listeningEnabled;
+
     // Optimistic update
     setSettings({
       enabled: next,
@@ -125,7 +153,6 @@ export default function HomeScreen() {
       }
       setVisualMode('solid');
       setTimeout(() => {
-        // return to listening/idle
         setVisualMode(listeningEnabled ? 'listening' : 'idle');
       }, 650);
     } catch (e: any) {
@@ -135,8 +162,6 @@ export default function HomeScreen() {
       setChatLoading(false);
     }
   }
-
-    (async () => {
       try {
         setBooting(true);
         const id = await getOrCreateDeviceId();
