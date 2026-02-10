@@ -109,15 +109,26 @@ export default function LocatorScreen() {
     })();
   }, []);
 
-  useSpeechRecognitionEvent('result', (event: any) => {
-    const best = event?.results?.[0]?.transcript ?? '';
-    if (best) setTranscript(best);
-  });
+  useEffect(() => {
+    const subResult = addSpeechListener('result', (event: any) => {
+      const best = event?.results?.[0]?.transcript ?? '';
+      if (best) setTranscript(best);
+    });
 
-  useSpeechRecognitionEvent('error', (event: any) => {
-    setError(`Speech error: ${event?.error ?? 'unknown'}`);
-    setRecognizing(false);
-  });
+    const subError = addSpeechListener('error', (event: any) => {
+      setError(`Speech error: ${event?.error ?? 'unknown'}`);
+      setRecognizing(false);
+    });
+
+    return () => {
+      try {
+        subResult?.remove?.();
+        subError?.remove?.();
+      } catch {
+        // ignore
+      }
+    };
+  }, [setTranscript]);
 
   useEffect(() => {
     if (!enabled) return;
