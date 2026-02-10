@@ -101,3 +101,30 @@
 #====================================================================================================
 # Testing Data - Main Agent and testing sub agent both should log testing data below this section
 #====================================================================================================
+## user_problem_statement: "Build 'My Phone' cross-platform assistant with always-listening locator, customizable wake/stop phrases, flashlight+chime, and ChatGPT-like chat via LLM. Current focus: Phase 1 MVP (foreground locator + chat + settings persistence)."
+## backend:
+##   - task: "Device registration + locator settings + chat endpoints"
+##     implemented: true
+##     working: "NA"
+##     file: "/app/backend/server.py"
+##     stuck_count: 0
+##     priority: "high"
+##     needs_retesting: true
+##     status_history:
+##       - working: "NA"
+##         agent: "main"
+##         comment: "Implemented /api/devices/register, /api/locator/settings/{device_id} (GET/PUT), /api/chat, /api/chat/history/{device_id}. Added Mongo collections locator_settings, devices, chat_messages. Added emergentintegrations LlmChat (OpenAI gpt-5.2) using EMERGENT_LLM_KEY from backend .env."
+## metadata:
+##   created_by: "main_agent"
+##   version: "1.0"
+##   test_sequence: 0
+##   run_ui: false
+## test_plan:
+##   current_focus:
+##     - "Device registration + locator settings + chat endpoints"
+##   stuck_tasks: []
+##   test_all: false
+##   test_priority: "high_first"
+## agent_communication:
+##   - agent: "main"
+##     message: "Please test new backend endpoints with curl: register device, get/update locator settings, chat reply, and chat history. Validate DB writes and LLM returns non-empty string."
