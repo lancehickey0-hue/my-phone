@@ -1,8 +1,21 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
+import {
+  Keyboard,
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
 import Card from '../../src/components/Card';
 import PrimaryButton from '../../src/components/PrimaryButton';
+import ToggleRow from '../../src/components/ToggleRow';
+import InfinityListeningVisual, { InfinityVisualMode } from '../../src/components/InfinityListeningVisual';
 import { colors } from '../../src/theme/colors';
 import { api, apiPath } from '../../src/lib/api';
 import { getOrCreateDeviceId } from '../../src/lib/device';
