@@ -104,9 +104,9 @@ export default function LocatorScreen() {
   }, [deviceId, reset, setSettings]);
 
   useEffect(() => {
-    // request mic permission
+    // request mic permission (required for speech recognition + best-effort background audio config)
     (async () => {
-      const perm = await Audio.requestPermissionsAsync();
+      const perm = await requestRecordingPermissionsAsync();
       setMicGranted(perm.granted);
     })();
   }, []);
