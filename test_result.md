@@ -131,3 +131,5 @@
 ## agent_communication:
 ##   - agent: "main"
 ##     message: "Please test new backend endpoints with curl: register device, get/update locator settings, chat reply, and chat history. Validate DB writes and LLM returns non-empty string."
+##   - agent: "testing"
+##     message: "✅ BACKEND TESTING COMPLETE - ALL TESTS PASSED (8/8). Comprehensive testing completed for all FastAPI endpoints via ingress URL. All core functionality working: device registration, locator settings CRUD, LLM chat integration with OpenAI gpt-5.2, chat history persistence, and proper error handling. MongoDB persistence confirmed. Ready for main agent to summarize and finish MVP."
