@@ -310,16 +310,16 @@ export default function LocatorScreen() {
                 name="wake_phrase"
                 render={({ field: { value, onChange }, fieldState }) => (
                   <>
-                    <Pressable style={styles.inputWrap}>
-                      <Text
-                        style={styles.inputText}
-                        onPress={() => {
-                          // no-op: keeping pure RN components; editing via prompt in next iteration
-                        }}
-                      >
-                        {value}
-                      </Text>
-                    </Pressable>
+                    <TextInput
+                      value={value}
+                      onChangeText={onChange}
+                      placeholder="e.g. My Phone, where are you"
+                      placeholderTextColor={colors.subtext}
+                      style={styles.input}
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      returnKeyType="done"
+                    />
                     {!!fieldState.error?.message && (
                       <Text style={styles.error}>{fieldState.error.message}</Text>
                     )}
