@@ -15,7 +15,7 @@ export default function TabsLayout() {
         tabBarInactiveTintColor: colors.subtext,
         headerTitleStyle: { fontWeight: '800' },
         headerLeft: () => (
-          <InfinityMark size={28} />
+          <InfinityMark size={40} />
         ),
         headerLeftContainerStyle: { paddingLeft: 12 },
       }}
