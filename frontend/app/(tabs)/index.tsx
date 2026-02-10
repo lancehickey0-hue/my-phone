@@ -31,6 +31,12 @@ export default function HomeScreen() {
   const [error, setError] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
 
+  // Home interactions
+  const [visualMode, setVisualMode] = useState<InfinityVisualMode>('idle');
+  const [chatInput, setChatInput] = useState('');
+  const [chatMessages, setChatMessages] = useState<Array<{ role: 'user' | 'assistant'; content: string }>>([]);
+  const [chatLoading, setChatLoading] = useState(false);
+
   const platform = useMemo(() => Platform.OS, []);
 
   useEffect(() => {
