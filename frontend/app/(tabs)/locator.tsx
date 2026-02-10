@@ -179,17 +179,6 @@ export default function LocatorScreen() {
     }
   }
 
-  async function loadSound() {
-    if (soundRef.current) return soundRef.current;
-    const { sound } = await Audio.Sound.createAsync(require('../../assets/sounds/chime.wav'), {
-      shouldPlay: false,
-      isLooping: true,
-      volume: 1.0,
-    });
-    soundRef.current = sound;
-    return sound;
-  }
-
   async function startAlert() {
     setError(null);
 
@@ -197,36 +186,20 @@ export default function LocatorScreen() {
       const r = await requestCamPerm();
       if (!r.granted) {
         setError('Camera permission is required for flashlight');
+        return;
       }
     }
 
-    const sound = await loadSound();
-    await Audio.setAudioModeAsync({
-      allowsRecordingIOS: false,
-      playsInSilentModeIOS: true,
-      staysActiveInBackground: false,
-      shouldDuckAndroid: false,
-      interruptionModeIOS: 1,
-      interruptionModeAndroid: 1,
-      playThroughEarpieceAndroid: false,
-    });
-
     setIsAlerting(true);
     setTorchOn(true);
-    await sound.playAsync();
+    await chime.start();
   }
 
   async function stopAlert() {
     setError(null);
     setTorchOn(false);
     setIsAlerting(false);
-    if (soundRef.current) {
-      try {
-        await soundRef.current.stopAsync();
-      } catch {
-        // ignore
-      }
-    }
+    chime.stop();
   }
 
   async function onSave(values: FormValues) {
