@@ -135,7 +135,7 @@ export default function InfinityListeningVisual({
   );
 }
 
-function AnimatedSolidMark({ size, solid }: { size: number; solid: Animated.SharedValue<number> }) {
+function AnimatedSolidMark({ size, solid }: { size: number; solid: any }) {
   const s = size;
   const cx = s / 2;
   const cy = s / 2;
