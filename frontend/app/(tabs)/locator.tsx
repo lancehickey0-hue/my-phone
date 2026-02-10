@@ -272,6 +272,13 @@ export default function LocatorScreen() {
               Camera (torch): {camPerm?.granted ? 'Granted' : 'Not granted'}
             </Text>
 
+            {!isNativeSpeechRecognitionAvailable() ? (
+              <Text style={[styles.error, { marginTop: 10 }]}
+              >
+                Voice listening requires a custom dev build (native speech module). You can still use “Test alert” below.
+              </Text>
+            ) : null}
+
             <View style={styles.row}>
               <PrimaryButton
                 title={recognizing ? 'Listening…' : 'Start listening'}
