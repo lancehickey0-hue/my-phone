@@ -46,6 +46,96 @@ export default function HomeScreen() {
 
   useEffect(() => {
     let mounted = true;
+
+  useEffect(() => {
+    if (!deviceId) return;
+    let mounted = true;
+    (async () => {
+      try {
+        const res = await api.get(apiPath(`/chat/history/${deviceId}`));
+        if (!mounted) return;
+        const msgs = (res.data?.messages ?? []) as Array<{ role: 'user' | 'assistant'; content: string }>;
+        setChatMessages(msgs.map((m) => ({ role: m.role, content: m.content })));
+      } catch {
+        // ignore hydration errors on home
+      }
+    })();
+
+    return () => {
+      mounted = false;
+    };
+  }, [deviceId]);
+
+  useEffect(() => {
+    // Visual reacts to listening toggle + chat state
+    if (chatLoading) {
+      setVisualMode('thinking');
+    } else if (listeningEnabled) {
+      setVisualMode('listening');
+    } else {
+      setVisualMode('idle');
+    }
+  }, [chatLoading, listeningEnabled]);
+
+  async function toggleAlwaysListening() {
+    if (!deviceId) return;
+    const next = !listeningEnabled;
+    // Optimistic update
+    setSettings({
+      enabled: next,
+      wake_phrase: settings?.wake_phrase ?? 'my phone where are you',
+      stop_phrase: settings?.stop_phrase ?? "i've found you",
+    });
+
+    try {
+      await api.put(apiPath(`/locator/settings/${deviceId}`), { enabled: next });
+      setError(null);
+    } catch (e: any) {
+      // Revert
+      setSettings({
+        enabled: listeningEnabled,
+        wake_phrase: settings?.wake_phrase ?? 'my phone where are you',
+        stop_phrase: settings?.stop_phrase ?? "i've found you",
+      });
+      setError(e?.message ?? 'Failed to update listening');
+    }
+  }
+
+  async function sendChat() {
+    if (!deviceId) return;
+    const text = chatInput.trim();
+    if (!text) return;
+
+    setChatInput('');
+    Keyboard.dismiss();
+    setError(null);
+
+    setChatMessages((prev) => [...prev, { role: 'user', content: text }]);
+
+    try {
+      setChatLoading(true);
+      setVisualMode('thinking');
+      const res = await api.post(apiPath('/chat'), {
+        device_id: deviceId,
+        message: text,
+      });
+      const reply = String(res.data?.reply ?? '').trim();
+      if (reply) {
+        setChatMessages((prev) => [...prev, { role: 'assistant', content: reply }]);
+      }
+      setVisualMode('solid');
+      setTimeout(() => {
+        // return to listening/idle
+        setVisualMode(listeningEnabled ? 'listening' : 'idle');
+      }, 650);
+    } catch (e: any) {
+      setError(e?.message ?? 'Chat failed');
+      setVisualMode(listeningEnabled ? 'listening' : 'idle');
+    } finally {
+      setChatLoading(false);
+    }
+  }
+
     (async () => {
       try {
         setBooting(true);
