@@ -15,7 +15,9 @@ import { z } from 'zod';
 import { Controller, useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { CameraView, useCameraPermissions } from 'expo-camera';
-import { Audio } from 'expo-av';
+import { requestRecordingPermissionsAsync } from 'expo-audio';
+
+import { useChimePlayer } from '../../src/hooks/useChimePlayer';
 import {
   addSpeechListener,
   isNativeSpeechRecognitionAvailable,
