@@ -1,5 +1,4 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { AudioModule } from 'expo-audio';
 import {
   Keyboard,
   KeyboardAvoidingView,
@@ -56,6 +55,22 @@ export default function LocatorScreen() {
 
   const cameraRef = useRef<CameraView>(null);
   const [torchOn, setTorchOn] = useState(false);
+
+  // strobe effect while alert is active
+  useEffect(() => {
+    if (!isAlerting) {
+      setTorchOn(false);
+      return;
+    }
+
+    // Toggle torch every ~450ms (fast enough to notice, slow enough to avoid nausea)
+    setTorchOn(true);
+    const id = setInterval(() => {
+      setTorchOn((v) => !v);
+    }, 450);
+
+    return () => clearInterval(id);
+  }, [isAlerting]);
 
   const chime = useChimePlayer(require('../../assets/sounds/chime.wav'));
   const [recognizing, setRecognizing] = useState(false);
@@ -261,7 +276,7 @@ export default function LocatorScreen() {
               <PrimaryButton
                 title={recognizing ? 'Listening…' : 'Start listening'}
                 onPress={startRecognition}
-                disabled={recognizing}
+                disabled={recognizing || !enabled || !isNativeSpeechRecognitionAvailable()}
                 style={{ flex: 1 }}
               />
               <View style={{ width: 12 }} />
