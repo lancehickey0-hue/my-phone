@@ -16,6 +16,7 @@ export default function HomeScreen() {
 
   const [booting, setBooting] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   const platform = useMemo(() => Platform.OS, []);
 
@@ -44,7 +45,7 @@ export default function HomeScreen() {
     return () => {
       mounted = false;
     };
-  }, [platform, setDeviceId, setSettings]);
+  }, [platform, refreshKey, setDeviceId, setSettings]);
 
   return (
     <ScrollView
