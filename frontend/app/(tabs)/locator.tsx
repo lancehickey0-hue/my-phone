@@ -171,7 +171,7 @@ export default function LocatorScreen() {
 
   async function stopRecognition() {
     try {
-      ExpoSpeechRecognitionModule.stop();
+      stopSpeechRecognition();
     } finally {
       setRecognizing(false);
     }
