@@ -56,7 +56,7 @@ export default function LocatorScreen() {
   const cameraRef = useRef<CameraView>(null);
   const [torchOn, setTorchOn] = useState(false);
 
-  const soundRef = useRef<Audio.Sound | null>(null);
+  const chime = useChimePlayer(require('../../assets/sounds/chime.wav'));
   const [recognizing, setRecognizing] = useState(false);
 
   const [loadingSettings, setLoadingSettings] = useState(false);
