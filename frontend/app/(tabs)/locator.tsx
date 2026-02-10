@@ -148,7 +148,7 @@ export default function LocatorScreen() {
   async function startRecognition() {
     try {
       setError(null);
-      const p = await ExpoSpeechRecognitionModule.requestPermissionsAsync();
+      const p = await requestSpeechRecognitionPermissionsAsync();
       if (!p.granted) {
         setError('Speech recognition permission not granted');
         setMicGranted(false);
