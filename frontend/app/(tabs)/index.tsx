@@ -39,6 +39,11 @@ export default function HomeScreen() {
 
   const platform = useMemo(() => Platform.OS, []);
 
+  // Always-listening toggle (maps to backend locator settings)
+  const listeningEnabled = settings?.enabled ?? true;
+
+  const canSend = useMemo(() => chatInput.trim().length > 0 && !chatLoading && !!deviceId, [chatInput, chatLoading, deviceId]);
+
   useEffect(() => {
     let mounted = true;
     (async () => {
