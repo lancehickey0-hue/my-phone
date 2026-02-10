@@ -227,7 +227,7 @@ export default function LocatorScreen() {
 
   useEffect(() => {
     return () => {
-      soundRef.current?.unloadAsync().catch(() => undefined);
+      // chime cleanup handled by hook
     };
   }, []);
 
