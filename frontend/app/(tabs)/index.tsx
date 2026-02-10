@@ -162,29 +162,6 @@ export default function HomeScreen() {
       setChatLoading(false);
     }
   }
-      try {
-        setBooting(true);
-        const id = await getOrCreateDeviceId();
-        if (!mounted) return;
-        setDeviceId(id);
-
-        const res = await api.post(apiPath('/devices/register'), {
-          device_id: id,
-          platform,
-        });
-        if (!mounted) return;
-        setSettings(res.data.settings);
-        setError(null);
-      } catch (e: any) {
-        setError(e?.message ?? 'Failed to register device');
-      } finally {
-        if (mounted) setBooting(false);
-      }
-    })();
-    return () => {
-      mounted = false;
-    };
-  }, [platform, refreshKey, setDeviceId, setSettings]);
 
   return (
     <Pressable style={{ flex: 1 }} onPress={() => Keyboard.dismiss()}>
