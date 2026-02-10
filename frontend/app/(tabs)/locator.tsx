@@ -156,11 +156,13 @@ export default function LocatorScreen() {
       }
       setMicGranted(true);
       setRecognizing(true);
-      ExpoSpeechRecognitionModule.start({
+      startSpeechRecognition({
         lang: 'en-US',
         interimResults: true,
         continuous: true,
-      } as any);
+        requiresOnDeviceRecognition: true,
+        contextualStrings: [wakePhrase, stopPhrase],
+      });
     } catch (e: any) {
       setError(e?.message ?? 'Failed to start listening');
       setRecognizing(false);
