@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { AudioModule } from 'expo-audio';
 import {
   Keyboard,
   KeyboardAvoidingView,
