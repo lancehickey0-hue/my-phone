@@ -334,11 +334,18 @@ export default function LocatorScreen() {
               <Controller
                 control={control}
                 name="stop_phrase"
-                render={({ field: { value }, fieldState }) => (
+                render={({ field: { value, onChange }, fieldState }) => (
                   <>
-                    <Pressable style={styles.inputWrap}>
-                      <Text style={styles.inputText}>{value}</Text>
-                    </Pressable>
+                    <TextInput
+                      value={value}
+                      onChangeText={onChange}
+                      placeholder="e.g. I've found you"
+                      placeholderTextColor={colors.subtext}
+                      style={styles.input}
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      returnKeyType="done"
+                    />
                     {!!fieldState.error?.message && (
                       <Text style={styles.error}>{fieldState.error.message}</Text>
                     )}
