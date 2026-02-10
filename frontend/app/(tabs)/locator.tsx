@@ -470,16 +470,14 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '800',
   },
-  inputWrap: {
+  input: {
     minHeight: 48,
     borderRadius: 14,
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.card2,
     paddingHorizontal: 14,
-    justifyContent: 'center',
-  },
-  inputText: {
+    paddingVertical: 12,
     color: colors.text,
     fontSize: 15,
   },
