@@ -231,6 +231,85 @@ class LocatorCommandIn(BaseModel):
 
 
 @api_router.post("/auth/login", response_model=AuthOut)
+
+@api_router.post("/security/pin/set")
+async def set_security_pin(body: SecurityPinSetIn, user=Depends(require_user)):
+    pin = body.pin.strip()
+    if len(pin) < 4 or len(pin) > 12:
+        raise HTTPException(status_code=400, detail="pin must be 4-12 chars")
+
+    await db.users.update_one(
+        {"_id": user["sub"]},
+        {"$set": {"security_pin_hash": hash_password(pin), "pin_updated_at": datetime.now(timezone.utc)}},
+        upsert=False,
+    )
+    return {"ok": True}
+
+
+@api_router.post("/security/pin/verify")
+async def verify_security_pin(body: VerifyPinIn, user=Depends(require_user)):
+    u = await db.users.find_one({"_id": user["sub"]})
+    if not u or not u.get("security_pin_hash"):
+        raise HTTPException(status_code=400, detail="security pin not set")
+
+    if not verify_password(body.pin.strip(), u.get("security_pin_hash", "")):
+        raise HTTPException(status_code=401, detail="invalid pin")
+
+    return {"ok": True}
+
+
+@api_router.post("/devices/push-token")
+async def set_push_token(body: PushTokenIn, user=Depends(require_user)):
+    # Ensure device belongs to user
+    device = await db.devices.find_one({"device_id": body.device_id})
+    if not device or device.get("user_id") != user["sub"]:
+        raise HTTPException(status_code=403, detail="device not owned by user")
+
+    await db.devices.update_one(
+        {"device_id": body.device_id},
+        {"$set": {"expo_push_token": body.expo_push_token, "push_updated_at": datetime.now(timezone.utc)}},
+    )
+    return {"ok": True}
+
+
+@api_router.post("/locator/remote/start")
+async def remote_start_locator(body: LocatorCommandIn, user=Depends(require_user)):
+    device = await db.devices.find_one({"device_id": body.device_id})
+    if not device or device.get("user_id") != user["sub"]:
+        raise HTTPException(status_code=403, detail="device not owned by user")
+    if not device.get("expo_push_token"):
+        raise HTTPException(status_code=400, detail="device has no push token")
+
+    # For MVP: store a command in DB (push delivery wired next)
+    await db.locator_commands.insert_one(
+        {
+            "device_id": body.device_id,
+            "user_id": user["sub"],
+            "type": "start",
+            "created_at": datetime.now(timezone.utc),
+        }
+    )
+    return {"ok": True, "queued": True}
+
+
+@api_router.post("/locator/remote/stop")
+async def remote_stop_locator(body: LocatorCommandIn, user=Depends(require_user)):
+    device = await db.devices.find_one({"device_id": body.device_id})
+    if not device or device.get("user_id") != user["sub"]:
+        raise HTTPException(status_code=403, detail="device not owned by user")
+    if not device.get("expo_push_token"):
+        raise HTTPException(status_code=400, detail="device has no push token")
+
+    await db.locator_commands.insert_one(
+        {
+            "device_id": body.device_id,
+            "user_id": user["sub"],
+            "type": "stop",
+            "created_at": datetime.now(timezone.utc),
+        }
+    )
+    return {"ok": True, "queued": True}
+
 async def auth_login(body: AuthLoginIn):
     email = body.email.strip().lower()
     user = await db.users.find_one({"email": email})
