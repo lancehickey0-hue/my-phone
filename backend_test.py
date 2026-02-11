@@ -253,6 +253,304 @@ def test_chat_history():
         print(f"❌ Error: {e}")
         return False, None
 
+def test_auth_register():
+    """Test POST /api/auth/register"""
+    print("\n🔍 Testing POST /api/auth/register")
+    
+    payload = {
+        "email": "testuser@example.com",
+        "password": "testpassword123"
+    }
+    
+    try:
+        response = requests.post(f"{BACKEND_URL}/auth/register", json=payload)
+        print(f"Status: {response.status_code}")
+        print(f"Response: {response.json()}")
+        
+        if response.status_code == 200:
+            data = response.json()
+            if (data.get("access_token") and 
+                data.get("token_type") == "bearer"):
+                print("✅ Auth register working correctly")
+                return True, data["access_token"]
+            else:
+                print("❌ Invalid auth response structure")
+                return False, None
+        else:
+            print(f"❌ Expected 200, got {response.status_code}")
+            return False, None
+    except Exception as e:
+        print(f"❌ Error: {e}")
+        return False, None
+
+def test_auth_login():
+    """Test POST /api/auth/login"""
+    print("\n🔍 Testing POST /api/auth/login")
+    
+    payload = {
+        "email": "testuser@example.com",
+        "password": "testpassword123"
+    }
+    
+    try:
+        response = requests.post(f"{BACKEND_URL}/auth/login", json=payload)
+        print(f"Status: {response.status_code}")
+        print(f"Response: {response.json()}")
+        
+        if response.status_code == 200:
+            data = response.json()
+            if (data.get("access_token") and 
+                data.get("token_type") == "bearer"):
+                print("✅ Auth login working correctly")
+                return True, data["access_token"]
+            else:
+                print("❌ Invalid auth response structure")
+                return False, None
+        else:
+            print(f"❌ Expected 200, got {response.status_code}")
+            return False, None
+    except Exception as e:
+        print(f"❌ Error: {e}")
+        return False, None
+
+def test_security_pin_set(token):
+    """Test POST /api/security/pin/set with auth"""
+    print("\n🔍 Testing POST /api/security/pin/set")
+    
+    headers = {"Authorization": f"Bearer {token}"}
+    payload = {"pin": "1234"}
+    
+    try:
+        response = requests.post(f"{BACKEND_URL}/security/pin/set", json=payload, headers=headers)
+        print(f"Status: {response.status_code}")
+        print(f"Response: {response.json()}")
+        
+        if response.status_code == 200:
+            data = response.json()
+            if data.get("ok") == True:
+                print("✅ Security pin set working correctly")
+                return True
+            else:
+                print("❌ Invalid pin set response")
+                return False
+        else:
+            print(f"❌ Expected 200, got {response.status_code}")
+            return False
+    except Exception as e:
+        print(f"❌ Error: {e}")
+        return False
+
+def test_security_pin_verify_correct(token):
+    """Test POST /api/security/pin/verify with correct pin"""
+    print("\n🔍 Testing POST /api/security/pin/verify (correct pin)")
+    
+    headers = {"Authorization": f"Bearer {token}"}
+    payload = {"pin": "1234"}
+    
+    try:
+        response = requests.post(f"{BACKEND_URL}/security/pin/verify", json=payload, headers=headers)
+        print(f"Status: {response.status_code}")
+        print(f"Response: {response.json()}")
+        
+        if response.status_code == 200:
+            data = response.json()
+            if data.get("ok") == True:
+                print("✅ Security pin verify (correct) working correctly")
+                return True
+            else:
+                print("❌ Invalid pin verify response")
+                return False
+        else:
+            print(f"❌ Expected 200, got {response.status_code}")
+            return False
+    except Exception as e:
+        print(f"❌ Error: {e}")
+        return False
+
+def test_security_pin_verify_wrong(token):
+    """Test POST /api/security/pin/verify with wrong pin"""
+    print("\n🔍 Testing POST /api/security/pin/verify (wrong pin)")
+    
+    headers = {"Authorization": f"Bearer {token}"}
+    payload = {"pin": "9999"}
+    
+    try:
+        response = requests.post(f"{BACKEND_URL}/security/pin/verify", json=payload, headers=headers)
+        print(f"Status: {response.status_code}")
+        print(f"Response: {response.json()}")
+        
+        if response.status_code == 401:
+            print("✅ Security pin verify (wrong pin) correctly returns 401")
+            return True
+        else:
+            print(f"❌ Expected 401, got {response.status_code}")
+            return False
+    except Exception as e:
+        print(f"❌ Error: {e}")
+        return False
+
+def test_device_register_with_user(token, user_id):
+    """Test POST /api/devices/register with user_id"""
+    print("\n🔍 Testing POST /api/devices/register with user_id")
+    
+    payload = {
+        "device_id": "dev_auth_1",
+        "platform": "android",
+        "user_id": user_id
+    }
+    
+    try:
+        response = requests.post(f"{BACKEND_URL}/devices/register", json=payload)
+        print(f"Status: {response.status_code}")
+        print(f"Response: {response.json()}")
+        
+        if response.status_code == 200:
+            data = response.json()
+            if (data.get("ok") == True and 
+                data.get("device_id") == "dev_auth_1" and
+                "settings" in data):
+                print("✅ Device registration with user_id working correctly")
+                return True
+            else:
+                print("❌ Invalid device registration response")
+                return False
+        else:
+            print(f"❌ Expected 200, got {response.status_code}")
+            return False
+    except Exception as e:
+        print(f"❌ Error: {e}")
+        return False
+
+def test_push_token_set(token):
+    """Test POST /api/devices/push-token with auth"""
+    print("\n🔍 Testing POST /api/devices/push-token")
+    
+    headers = {"Authorization": f"Bearer {token}"}
+    payload = {
+        "device_id": "dev_auth_1",
+        "expo_push_token": "ExponentPushToken[xxxxxxxxxxxxxxxxxxxxxx]"
+    }
+    
+    try:
+        response = requests.post(f"{BACKEND_URL}/devices/push-token", json=payload, headers=headers)
+        print(f"Status: {response.status_code}")
+        print(f"Response: {response.json()}")
+        
+        if response.status_code == 200:
+            data = response.json()
+            if data.get("ok") == True:
+                print("✅ Push token set working correctly")
+                return True
+            else:
+                print("❌ Invalid push token response")
+                return False
+        else:
+            print(f"❌ Expected 200, got {response.status_code}")
+            return False
+    except Exception as e:
+        print(f"❌ Error: {e}")
+        return False
+
+def test_push_token_unauthorized(token):
+    """Test POST /api/devices/push-token without owning device => 403"""
+    print("\n🔍 Testing POST /api/devices/push-token (unauthorized device)")
+    
+    headers = {"Authorization": f"Bearer {token}"}
+    payload = {
+        "device_id": "dev_not_owned",
+        "expo_push_token": "ExponentPushToken[xxxxxxxxxxxxxxxxxxxxxx]"
+    }
+    
+    try:
+        response = requests.post(f"{BACKEND_URL}/devices/push-token", json=payload, headers=headers)
+        print(f"Status: {response.status_code}")
+        print(f"Response: {response.json()}")
+        
+        if response.status_code == 403:
+            print("✅ Push token unauthorized correctly returns 403")
+            return True
+        else:
+            print(f"❌ Expected 403, got {response.status_code}")
+            return False
+    except Exception as e:
+        print(f"❌ Error: {e}")
+        return False
+
+def test_locator_remote_start(token):
+    """Test POST /api/locator/remote/start with auth"""
+    print("\n🔍 Testing POST /api/locator/remote/start")
+    
+    headers = {"Authorization": f"Bearer {token}"}
+    payload = {"device_id": "dev_auth_1"}
+    
+    try:
+        response = requests.post(f"{BACKEND_URL}/locator/remote/start", json=payload, headers=headers)
+        print(f"Status: {response.status_code}")
+        print(f"Response: {response.json()}")
+        
+        if response.status_code == 200:
+            data = response.json()
+            if data.get("ok") == True and data.get("queued") == True:
+                print("✅ Remote locator start working correctly")
+                return True
+            else:
+                print("❌ Invalid remote start response")
+                return False
+        else:
+            print(f"❌ Expected 200, got {response.status_code}")
+            return False
+    except Exception as e:
+        print(f"❌ Error: {e}")
+        return False
+
+def test_locator_remote_stop(token):
+    """Test POST /api/locator/remote/stop with auth"""
+    print("\n🔍 Testing POST /api/locator/remote/stop")
+    
+    headers = {"Authorization": f"Bearer {token}"}
+    payload = {"device_id": "dev_auth_1"}
+    
+    try:
+        response = requests.post(f"{BACKEND_URL}/locator/remote/stop", json=payload, headers=headers)
+        print(f"Status: {response.status_code}")
+        print(f"Response: {response.json()}")
+        
+        if response.status_code == 200:
+            data = response.json()
+            if data.get("ok") == True and data.get("queued") == True:
+                print("✅ Remote locator stop working correctly")
+                return True
+            else:
+                print("❌ Invalid remote stop response")
+                return False
+        else:
+            print(f"❌ Expected 200, got {response.status_code}")
+            return False
+    except Exception as e:
+        print(f"❌ Error: {e}")
+        return False
+
+def decode_jwt_payload(token):
+    """Decode JWT token to get user_id (sub)"""
+    try:
+        import base64
+        import json
+        # JWT format: header.payload.signature
+        parts = token.split('.')
+        if len(parts) != 3:
+            return None
+        
+        # Decode payload (add padding if needed)
+        payload_b64 = parts[1]
+        # Add padding if needed
+        payload_b64 += '=' * (4 - len(payload_b64) % 4)
+        payload_bytes = base64.urlsafe_b64decode(payload_b64)
+        payload = json.loads(payload_bytes)
+        return payload.get('sub')
+    except Exception as e:
+        print(f"Error decoding JWT: {e}")
+        return None
+
 def main():
     """Run all backend tests"""
     print("🚀 Starting Backend API Tests")
@@ -285,6 +583,58 @@ def main():
     # Test 8: Chat history
     results['chat_history'], history_data = test_chat_history()
     
+    # NEW JWT AUTH AND SECURITY TESTS
+    print("\n" + "=" * 60)
+    print("🔐 JWT AUTH & SECURITY TESTS")
+    print("=" * 60)
+    
+    # Test 9: Auth register
+    results['auth_register'], access_token = test_auth_register()
+    
+    # Test 10: Auth login
+    results['auth_login'], login_token = test_auth_login()
+    
+    # Use the login token for subsequent tests
+    token_to_use = login_token if login_token else access_token
+    user_id = decode_jwt_payload(token_to_use) if token_to_use else None
+    
+    if token_to_use and user_id:
+        # Test 11: Security pin set
+        results['pin_set'] = test_security_pin_set(token_to_use)
+        
+        # Test 12: Security pin verify (correct)
+        results['pin_verify_correct'] = test_security_pin_verify_correct(token_to_use)
+        
+        # Test 13: Security pin verify (wrong)
+        results['pin_verify_wrong'] = test_security_pin_verify_wrong(token_to_use)
+        
+        # Test 14: Device register with user_id
+        results['device_register_user'] = test_device_register_with_user(token_to_use, user_id)
+        
+        # Test 15: Push token set
+        results['push_token_set'] = test_push_token_set(token_to_use)
+        
+        # Test 16: Push token unauthorized
+        results['push_token_unauthorized'] = test_push_token_unauthorized(token_to_use)
+        
+        # Test 17: Remote locator start
+        results['remote_start'] = test_locator_remote_start(token_to_use)
+        
+        # Test 18: Remote locator stop
+        results['remote_stop'] = test_locator_remote_stop(token_to_use)
+    else:
+        print("❌ Cannot run authenticated tests - no valid token")
+        results.update({
+            'pin_set': False,
+            'pin_verify_correct': False,
+            'pin_verify_wrong': False,
+            'device_register_user': False,
+            'push_token_set': False,
+            'push_token_unauthorized': False,
+            'remote_start': False,
+            'remote_stop': False
+        })
+    
     # Summary
     print("\n" + "=" * 60)
     print("📊 TEST RESULTS SUMMARY")
@@ -295,7 +645,7 @@ def main():
     
     for test_name, result in results.items():
         status = "✅ PASS" if result else "❌ FAIL"
-        print(f"{test_name:20} {status}")
+        print(f"{test_name:25} {status}")
     
     print(f"\nOverall: {passed}/{total} tests passed")
     
