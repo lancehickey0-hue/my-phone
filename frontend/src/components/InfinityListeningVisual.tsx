@@ -45,7 +45,8 @@ export default function InfinityListeningVisual({
     const shouldSpin = mode === 'listening' || mode === 'thinking';
     if (shouldSpin) {
       t.value = withRepeat(
-        withTiming(1, { duration: 2200, easing: Easing.linear }),
+        // slower spin (about half speed)
+        withTiming(1, { duration: 4400, easing: Easing.linear }),
         -1,
         false
       );
