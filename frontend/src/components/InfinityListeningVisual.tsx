@@ -110,9 +110,11 @@ export default function InfinityListeningVisual({
             const x = (a * Math.cos(theta)) / denom;
             const y = (a * Math.sin(theta) * Math.cos(theta)) / denom;
 
-            const jitter = 1.6 * Math.sin(2 * Math.PI * (t.value + p.phase * 3));
-            const px = cx + x * 2.15 + jitter;
-            const py = cy + y * 3.0;
+            // DNA-like twist: two strands wobble in opposite directions around the curve
+            const wobble = 7.5 * Math.sin(2 * Math.PI * (t.value * 1.25 + p.phase * 2.2));
+            const strandSign = p.strand === 0 ? 1 : -1;
+            const px = cx + x * 2.15 + wobble * strandSign;
+            const py = cy + y * 3.0 + wobble * 0.22 * -strandSign;
 
             const solidK = solid.value;
             const fade = interpolate(solidK, [0, 1], [1, 0.15]);
