@@ -129,6 +129,35 @@ export default function ChatScreen() {
                     style={[styles.bubble, isUser ? styles.bubbleUser : styles.bubbleAssistant]}
                   >
                     <Text style={styles.bubbleText}>{m.content}</Text>
+
+                    {!isUser ? (
+                      <View style={styles.bubbleActions}>
+                        <Pressable
+                          onPress={() => {
+                            if (speakingIndex === idx) {
+                              stopSpeaking();
+                              setSpeakingIndex(null);
+                              return;
+                            }
+                            setSpeakingIndex(idx);
+                            speak(m.content, voice);
+                          }}
+                          style={({ pressed }) => [
+                            styles.talkBtn,
+                            { opacity: pressed ? 0.85 : 1 },
+                          ]}
+                          accessibilityRole="button"
+                          accessibilityLabel={speakingIndex === idx ? 'Stop speaking' : 'Talk'}
+                        >
+                          <Ionicons
+                            name={speakingIndex === idx ? 'square' : 'volume-high'}
+                            size={16}
+                            color={colors.text}
+                          />
+                          <Text style={styles.talkText}>{speakingIndex === idx ? 'Stop' : 'Talk'}</Text>
+                        </Pressable>
+                      </View>
+                    ) : null}
                   </View>
                 );
               })}
