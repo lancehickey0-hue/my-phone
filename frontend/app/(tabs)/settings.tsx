@@ -30,6 +30,11 @@ export default function SettingsScreen() {
       </Card>
 
       <Card style={{ marginTop: 16 }}>
+        <Text style={styles.cardTitle}>Assistant voice</Text>
+        <Text style={styles.cardHint}>Pick a natural system voice.</Text>
+      </Card>
+
+      <Card style={{ marginTop: 16 }}>
         <Text style={styles.cardTitle}>Background Listening</Text>
         <Text style={styles.cardHint}>
           Android-first. True always-on hotword needs a custom dev build and a foreground service.
