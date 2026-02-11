@@ -7,6 +7,10 @@ import {
   Text,
   View,
 } from 'react-native';
+import Constants from 'expo-constants';
+import { requestRecordingPermissionsAsync } from 'expo-audio';
+
+import { useWakeWord } from '../../src/lib/wakeword';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 
