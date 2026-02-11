@@ -209,6 +209,23 @@ async def auth_register(body: AuthRegisterIn):
         }
     )
 
+class SecurityPinSetIn(BaseModel):
+    pin: str
+
+
+class VerifyPinIn(BaseModel):
+    pin: str
+
+
+class PushTokenIn(BaseModel):
+    device_id: str
+    expo_push_token: str
+
+
+class LocatorCommandIn(BaseModel):
+    device_id: str
+
+
     token = create_access_token(sub=user_id, extra={"email": email})
     return AuthOut(access_token=token)
 
