@@ -17,6 +17,8 @@ import Card from '../../src/components/Card';
 import PrimaryButton from '../../src/components/PrimaryButton';
 import { colors } from '../../src/theme/colors';
 import { api, apiPath } from '../../src/lib/api';
+import { speak, stopSpeaking } from '../../src/lib/tts';
+import { useAssistantStore } from '../../src/stores/assistantStore';
 import { useDeviceStore } from '../../src/stores/deviceStore';
 
 type Msg = {
