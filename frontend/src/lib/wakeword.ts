@@ -35,7 +35,7 @@ export function useWakeWord(options: {
   keywords: Array<{ builtin?: string; modelPath?: string; sensitivity?: number }>;
   onDetected: (keywordIndex: number) => void;
 }) {
-  const managerRef = useRef<PorcupineManager | null>(null);
+  const managerRef = useRef<any>(null);
   const [state, setState] = useState<WakeWordState>({
     available: Platform.OS !== 'web',
     running: false,
