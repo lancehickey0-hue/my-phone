@@ -124,7 +124,7 @@ export default function InfinityListeningVisual({
         </Defs>
         {particles.map((p) => {
           const animatedProps = useAnimatedProps(() => {
-            const theta = 2 * Math.PI * (t.value + p.phase);
+            const theta = 2 * Math.PI * (t.value + p.phase + p.strand * strandPhase);
             const denom = 1 + Math.pow(Math.sin(theta), 2);
             const x = (a * Math.cos(theta)) / denom;
             const y = (a * Math.sin(theta) * Math.cos(theta)) / denom;
@@ -149,7 +149,7 @@ export default function InfinityListeningVisual({
 
           // Use square-ish "pixels" instead of circles to match the reference look.
           const rectProps = useAnimatedProps(() => {
-            const theta = 2 * Math.PI * (t.value + p.phase);
+            const theta = 2 * Math.PI * (t.value + p.phase + p.strand * strandPhase);
             const denom = 1 + Math.pow(Math.sin(theta), 2);
             const x = (a * Math.cos(theta)) / denom;
             const y = (a * Math.sin(theta) * Math.cos(theta)) / denom;
