@@ -321,18 +321,6 @@ async def remote_stop_locator(body: LocatorCommandIn, user=Depends(require_user)
     )
     return {"ok": True, "queued": True}
 
-async def auth_login(body: AuthLoginIn):
-    email = body.email.strip().lower()
-    user = await db.users.find_one({"email": email})
-    if not user:
-        raise HTTPException(status_code=401, detail="invalid credentials")
-
-    if not verify_password(body.password, user.get("password_hash", "")):
-        raise HTTPException(status_code=401, detail="invalid credentials")
-
-    token = create_access_token(sub=str(user.get("_id")), extra={"email": email})
-    return AuthOut(access_token=token)
-
 @api_router.get("/")
 async def root():
     return {"message": "My Phone API"}
