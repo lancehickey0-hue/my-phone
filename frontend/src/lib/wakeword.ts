@@ -60,10 +60,21 @@ export function useWakeWord(options: {
         return;
       }
 
+      const { pv, vp } = await loadPicovoiceModules();
+      if (!pv || !vp) {
+        setState((s) => ({ ...s, running: false, error: 'Wake word module unavailable (needs dev build)' }));
+        return;
+      }
+
+      const PorcupineManager = pv.PorcupineManager as any;
+      const BuiltInKeywords = pv.BuiltInKeywords as any;
+
       // PorcupineManager handles audio capture via VoiceProcessor internally.
       const manager = await PorcupineManager.fromBuiltInKeywords(
         options.accessKey,
-        options.keywords.map((k) => (BuiltInKeywords as any)[String(k.builtin ?? 'Jarvis')] ?? (BuiltInKeywords as any).Jarvis),
+        options.keywords.map(
+          (k: any) => BuiltInKeywords[String(k.builtin ?? 'Jarvis')] ?? BuiltInKeywords.Jarvis
+        ),
         (keywordIndex: number) => {
           setState((s) => ({
             ...s,
