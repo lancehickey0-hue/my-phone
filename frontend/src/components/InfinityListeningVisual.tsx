@@ -135,11 +135,40 @@ export default function InfinityListeningVisual({
             } as any;
           });
 
+          // Use square-ish "pixels" instead of circles to match the reference look.
+          const rectProps = useAnimatedProps(() => {
+            const theta = 2 * Math.PI * (t.value + p.phase);
+            const denom = 1 + Math.pow(Math.sin(theta), 2);
+            const x = (a * Math.cos(theta)) / denom;
+            const y = (a * Math.sin(theta) * Math.cos(theta)) / denom;
+
+            const wobbleBase = helix * Math.sin(2 * Math.PI * (t.value * 1.25 + p.phase * 2.2));
+            const strandOffset = (p.strand - 1.5) / 1.5;
+            const wobble = wobbleBase * strandOffset;
+
+            const px = cx + x * 2.15 + wobble;
+            const py = cy + y * 3.0 + wobble * 0.22 * -1;
+
+            const solidK = solid.value;
+            const fade = interpolate(solidK, [0, 1], [1, 0.15]);
+            const opacity = clamp(p.alpha * fade, 0.05, 1);
+
+            const size = p.radius * 2;
+            return {
+              x: px - size / 2,
+              y: py - size / 2,
+              width: size,
+              height: size,
+              rx: 1.2,
+              ry: 1.2,
+              opacity,
+            } as any;
+          });
+
           return (
-            <AnimatedCircle
+            <AnimatedRect
               key={p.id}
-              animatedProps={animatedProps}
-              r={p.radius}
+              animatedProps={rectProps}
               fill={colors.primary}
             />
           );
