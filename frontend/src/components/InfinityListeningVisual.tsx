@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo } from 'react';
 import { StyleSheet, View } from 'react-native';
-import Svg, { Circle } from 'react-native-svg';
+import Svg, { Circle, Rect } from 'react-native-svg';
 import Animated, {
   Easing,
   interpolate,
@@ -12,6 +12,7 @@ import Animated, {
 import { colors } from '../theme/colors';
 
 const AnimatedCircle = Animated.createAnimatedComponent(Circle);
+const AnimatedRect = Animated.createAnimatedComponent(Rect);
 
 export type InfinityVisualMode = 'idle' | 'listening' | 'thinking' | 'solid';
 
@@ -86,7 +87,7 @@ export default function InfinityListeningVisual({
   const a = s * 0.22; // scale
 
   // Quadruple helix separation (tighter than before)
-  const helix = s * 0.020;
+  const helix = s * 0.014;
 
   // Parametric lemniscate of Bernoulli
   // x = a * cos(theta) / (1 + sin^2(theta))
