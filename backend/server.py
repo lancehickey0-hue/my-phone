@@ -113,8 +113,6 @@ class AuthOut(BaseModel):
     access_token: str
     token_type: str = "bearer"
 
-    messages: List[ChatMessage]
-
 
 # ---------------------------
 # Helpers
