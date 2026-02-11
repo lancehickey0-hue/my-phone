@@ -209,6 +209,24 @@ async def auth_register(body: AuthRegisterIn):
         }
     )
 
+    token = create_access_token(sub=user_id, extra={"email": email})
+    return AuthOut(access_token=token)
+
+
+@api_router.post("/auth/login", response_model=AuthOut)
+async def auth_login(body: AuthLoginIn):
+    email = body.email.strip().lower()
+    user = await db.users.find_one({"email": email})
+    if not user:
+        raise HTTPException(status_code=401, detail="invalid credentials")
+
+    if not verify_password(body.password, user.get("password_hash", "")):
+        raise HTTPException(status_code=401, detail="invalid credentials")
+
+    token = create_access_token(sub=str(user.get("_id")), extra={"email": email})
+    return AuthOut(access_token=token)
+
+
 class SecurityPinSetIn(BaseModel):
     pin: str
 
@@ -224,13 +242,6 @@ class PushTokenIn(BaseModel):
 
 class LocatorCommandIn(BaseModel):
     device_id: str
-
-
-    token = create_access_token(sub=user_id, extra={"email": email})
-    return AuthOut(access_token=token)
-
-
-@api_router.post("/auth/login", response_model=AuthOut)
 
 @api_router.post("/security/pin/set")
 async def set_security_pin(body: SecurityPinSetIn, user=Depends(require_user)):
