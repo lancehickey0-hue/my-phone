@@ -176,7 +176,7 @@ export default function InfinityListeningVisual({
             <AnimatedRect
               key={p.id}
               animatedProps={rectProps}
-              fill={colors.primary}
+              fill="url(#pxGlow)"
             />
           );
         })}
