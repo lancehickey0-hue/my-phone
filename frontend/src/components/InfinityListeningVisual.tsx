@@ -63,12 +63,18 @@ export default function InfinityListeningVisual({
   }, [aura, mode, solid, t]);
 
   const particles = useMemo(() => {
-    return new Array(particleCount).fill(0).map((_, i) => ({
-      id: i,
-      phase: i / particleCount,
-      radius: 2.1 + (i % 4) * 0.35,
-      alpha: 0.65 - (i % 5) * 0.08,
-    }));
+    // Thicker, DNA-like twist: we render two strands (even/odd particles) with opposite-phase wobble.
+    return new Array(particleCount).fill(0).map((_, i) => {
+      const strand = i % 2; // 0 or 1
+      return {
+        id: i,
+        phase: i / particleCount,
+        strand,
+        // ~4x thicker than before
+        radius: 6.5 + (i % 3) * 0.9,
+        alpha: 0.62 - (i % 6) * 0.06,
+      };
+    });
   }, [particleCount]);
 
   const s = size;
