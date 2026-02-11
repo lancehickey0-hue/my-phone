@@ -257,8 +257,12 @@ def test_auth_register():
     """Test POST /api/auth/register"""
     print("\n🔍 Testing POST /api/auth/register")
     
+    # Use a unique email with timestamp to avoid conflicts
+    import time
+    unique_email = f"testuser{int(time.time())}@example.com"
+    
     payload = {
-        "email": "testuser@example.com",
+        "email": unique_email,
         "password": "testpassword123"
     }
     
