@@ -80,7 +80,7 @@ export function useWakeWord(options: {
         await managerRef.current.delete();
         managerRef.current = null;
       }
-      await VoiceProcessor.stop();
+      await vp.stop();
     } catch {
       // ignore
     } finally {
