@@ -35,7 +35,7 @@ export default function InfinityListeningVisual({
   size = 260,
   mode,
   // More, smaller particles looks smoother on mobile
-  particleCount = 220,
+  particleCount = 320,
 }: Props) {
   const t = useSharedValue(0);
   const aura = useSharedValue(0);
@@ -46,8 +46,8 @@ export default function InfinityListeningVisual({
     const shouldSpin = mode === 'listening' || mode === 'thinking';
     if (shouldSpin) {
       t.value = withRepeat(
-        // fast spin (test)
-        withTiming(1, { duration: 800, easing: Easing.linear }),
+        // slower spin
+        withTiming(1, { duration: 1600, easing: Easing.linear }),
         -1,
         false
       );
@@ -65,10 +65,12 @@ export default function InfinityListeningVisual({
     solid.value = mode === 'solid' || mode === 'idle' ? withTiming(1, { duration: 350 }) : withTiming(0, { duration: 250 });
   }, [aura, mode, solid, t]);
 
+  const STRANDS = 8;
+
   const particles = useMemo(() => {
-    // Quadruple-helix twist: four strands with phase offsets.
+    // Multi-helix twist: multiple strands with phase offsets.
     return new Array(particleCount).fill(0).map((_, i) => {
-      const strand = i % 4; // 0..3
+      const strand = i % STRANDS; // 0..STRANDS-1
       return {
         id: i,
         phase: i / particleCount,
