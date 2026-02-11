@@ -66,10 +66,15 @@ export default function VoiceSetupScreen() {
             We’ll request microphone access so My Phone can hear your wake word and commands.
           </Text>
           <PrimaryButton
-            title="Continue"
-            onPress={() => setStep(2)}
+            title="Request microphone permission"
+            onPress={async () => {
+              const perm = await requestRecordingPermissionsAsync();
+              setMicGranted(perm.granted);
+              setStep(2);
+            }}
             style={{ marginTop: 12 }}
           />
+          <Text style={styles.hint}>Microphone: {micGranted === null ? 'Not requested yet' : micGranted ? 'Granted' : 'Not granted'}</Text>
         </Card>
 
         <Card style={{ marginTop: 16 }}>
