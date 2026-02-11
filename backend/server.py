@@ -186,6 +186,46 @@ async def _send_llm_chat(device_id: str, prompt: str) -> str:
 # ---------------------------
 # Routes
 # ---------------------------
+
+@api_router.post("/auth/register", response_model=AuthOut)
+async def auth_register(body: AuthRegisterIn):
+    email = body.email.strip().lower()
+    if not email or "@" not in email:
+        raise HTTPException(status_code=400, detail="valid email required")
+    if len(body.password) < 8:
+        raise HTTPException(status_code=400, detail="password must be at least 8 characters")
+
+    existing = await db.users.find_one({"email": email})
+    if existing:
+        raise HTTPException(status_code=409, detail="email already registered")
+
+    user_id = str(uuid.uuid4())
+    await db.users.insert_one(
+        {
+            "_id": user_id,
+            "email": email,
+            "password_hash": hash_password(body.password),
+            "created_at": datetime.now(timezone.utc),
+        }
+    )
+
+    token = create_access_token(sub=user_id, extra={"email": email})
+    return AuthOut(access_token=token)
+
+
+@api_router.post("/auth/login", response_model=AuthOut)
+async def auth_login(body: AuthLoginIn):
+    email = body.email.strip().lower()
+    user = await db.users.find_one({"email": email})
+    if not user:
+        raise HTTPException(status_code=401, detail="invalid credentials")
+
+    if not verify_password(body.password, user.get("password_hash", "")):
+        raise HTTPException(status_code=401, detail="invalid credentials")
+
+    token = create_access_token(sub=str(user.get("_id")), extra={"email": email})
+    return AuthOut(access_token=token)
+
 @api_router.get("/")
 async def root():
     return {"message": "My Phone API"}
