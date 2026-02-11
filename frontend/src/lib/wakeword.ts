@@ -103,7 +103,10 @@ export function useWakeWord(options: {
         await managerRef.current.delete();
         managerRef.current = null;
       }
-      await vp.stop();
+      const { vp } = await loadPicovoiceModules();
+      if (vp?.VoiceProcessor?.instance?.stop) {
+        await vp.VoiceProcessor.instance.stop();
+      }
     } catch {
       // ignore
     } finally {
