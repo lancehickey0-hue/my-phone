@@ -110,6 +110,13 @@ export default function InfinityListeningVisual({
       />
 
       <Svg width={s} height={s}>
+        <Defs>
+          <RadialGradient id="pxGlow" cx="50%" cy="50%" rx="50%" ry="50%" fx="50%" fy="50%">
+            <Stop offset="0%" stopColor="#FFFFFF" stopOpacity={0.75} />
+            <Stop offset="35%" stopColor={colors.primary} stopOpacity={0.90} />
+            <Stop offset="100%" stopColor={colors.primary} stopOpacity={0.20} />
+          </RadialGradient>
+        </Defs>
         {particles.map((p) => {
           const animatedProps = useAnimatedProps(() => {
             const theta = 2 * Math.PI * (t.value + p.phase);
