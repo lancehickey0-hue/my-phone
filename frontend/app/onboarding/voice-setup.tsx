@@ -92,6 +92,20 @@ export default function VoiceSetupScreen() {
             style={{ marginTop: 12 }}
             variant={step >= 2 ? 'primary' : 'secondary'}
           />
+
+          <PrimaryButton
+            title={wake.state.running ? 'Wake word running' : 'Start wake word (dev build)'}
+            onPress={async () => {
+              setWakeStatus('Starting…');
+              await wake.start();
+              if (wake.state.error) setWakeStatus(wake.state.error);
+              else setWakeStatus('Listening for wake word');
+            }}
+            style={{ marginTop: 12 }}
+            disabled={!micGranted}
+            variant="secondary"
+          />
+          <Text style={styles.hint}>Wake status: {wakeStatus}</Text>
         </Card>
 
         <Card style={{ marginTop: 16 }}>
