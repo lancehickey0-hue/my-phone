@@ -28,6 +28,10 @@ type Msg = {
 };
 
 export default function ChatScreen() {
+
+  const { voice } = useAssistantStore();
+  const [speakingIndex, setSpeakingIndex] = useState<number | null>(null);
+
   const insets = useSafeAreaInsets();
   const { deviceId } = useDeviceStore();
 
