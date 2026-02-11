@@ -31,7 +31,12 @@ export default function SettingsScreen() {
 
       <Card style={{ marginTop: 16 }}>
         <Text style={styles.cardTitle}>Assistant voice</Text>
-        <Text style={styles.cardHint}>Pick a natural system voice.</Text>
+        <Text style={styles.cardHint}>Pick a natural system voice at /settings/voice.</Text>
+      </Card>
+
+      <Card style={{ marginTop: 16 }}>
+        <Text style={styles.cardTitle}>Voice setup</Text>
+        <Text style={styles.cardHint}>Microphone + wake-word test at /onboarding/voice-setup.</Text>
       </Card>
 
       <Card style={{ marginTop: 16 }}>
