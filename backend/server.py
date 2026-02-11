@@ -97,6 +97,21 @@ class ChatResponse(BaseModel):
 
 class ChatHistoryResponse(BaseModel):
     device_id: str
+
+class AuthRegisterIn(BaseModel):
+    email: str
+    password: str
+
+
+class AuthLoginIn(BaseModel):
+    email: str
+    password: str
+
+
+class AuthOut(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+
     messages: List[ChatMessage]
 
 
