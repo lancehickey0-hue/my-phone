@@ -47,8 +47,6 @@ export function useWakeWord(options: {
       }
 
       // PorcupineManager handles audio capture via VoiceProcessor internally.
-      const { BuiltInKeywords } = await import('@picovoice/porcupine-react-native');
-
       const manager = await PorcupineManager.fromBuiltInKeywords(
         options.accessKey,
         options.keywords.map((k) => (BuiltInKeywords as any)[String(k.builtin ?? 'Jarvis')] ?? (BuiltInKeywords as any).Jarvis),
