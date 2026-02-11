@@ -351,6 +351,7 @@ async def register_device(body: DeviceRegisterIn):
             "$set": {
                 "device_id": body.device_id,
                 "platform": body.platform,
+                "user_id": body.user_id,
                 "last_seen_at": datetime.now(timezone.utc),
             },
             "$setOnInsert": {"created_at": datetime.now(timezone.utc)},
