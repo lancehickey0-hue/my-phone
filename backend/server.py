@@ -58,6 +58,7 @@ class StatusCheckCreate(BaseModel):
 class DeviceRegisterIn(BaseModel):
     device_id: str
     platform: str
+    user_id: Optional[str] = None
 
 
 class LocatorSettings(BaseModel):
