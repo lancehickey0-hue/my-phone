@@ -33,7 +33,8 @@ function clamp(v: number, min: number, max: number) {
 export default function InfinityListeningVisual({
   size = 260,
   mode,
-  particleCount = 56,
+  // More, smaller particles looks smoother on mobile
+  particleCount = 140,
 }: Props) {
   const t = useSharedValue(0);
   const aura = useSharedValue(0);
