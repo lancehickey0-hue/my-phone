@@ -33,7 +33,18 @@ const DEFAULT_SCRIPT =
 export default function VoiceSetupScreen() {
   const insets = useSafeAreaInsets();
   const [step, setStep] = useState<1 | 2 | 3>(1);
+  const [micGranted, setMicGranted] = useState<boolean | null>(null);
+  const [wakeStatus, setWakeStatus] = useState<string>('Not started');
   const script = useMemo(() => DEFAULT_SCRIPT, []);
+
+  const extra = (Constants.expoConfig?.extra ?? {}) as Record<string, any>;
+  const accessKey = extra.PICOVOICE_ACCESS_KEY as string | undefined;
+
+  const wake = useWakeWord({
+    accessKey,
+    keywords: [{ builtin: 'Jarvis', sensitivity: 0.65 }],
+    onDetected: () => setWakeStatus('Wake word detected'),
+  });
 
   return (
     <KeyboardAvoidingView
