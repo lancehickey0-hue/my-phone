@@ -46,22 +46,24 @@ export function useWakeWord(options: {
         return;
       }
 
-      // Ensure microphone capture is started
-      await VoiceProcessor.start();
+      // PorcupineManager handles audio capture via VoiceProcessor internally.
+      const { BuiltInKeywords } = await import('@picovoice/porcupine-react-native');
 
-      const porcupine = await Porcupine.fromBuiltInKeywords(
+      const manager = await PorcupineManager.fromBuiltInKeywords(
         options.accessKey,
-        options.keywords.map((k) => (k.builtin ?? 'jarvis') as any),
+        options.keywords.map((k) => (BuiltInKeywords as any)[String(k.builtin ?? 'Jarvis')] ?? (BuiltInKeywords as any).Jarvis),
+        (keywordIndex: number) => {
+          setState((s) => ({
+            ...s,
+            lastDetection: { keywordIndex, timestamp: Date.now() },
+          }));
+          options.onDetected(keywordIndex);
+        },
+        undefined,
+        undefined,
+        undefined,
         options.keywords.map((k) => k.sensitivity ?? 0.65)
       );
-
-      const manager = await PorcupineManager.fromPorcupine(porcupine, (keywordIndex: number) => {
-        setState((s) => ({
-          ...s,
-          lastDetection: { keywordIndex, timestamp: Date.now() },
-        }));
-        options.onDetected(keywordIndex);
-      });
 
       managerRef.current = manager;
       await manager.start();
