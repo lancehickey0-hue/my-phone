@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo } from 'react';
 import { StyleSheet, View } from 'react-native';
-import Svg, { Circle, Rect } from 'react-native-svg';
+import Svg, { Circle, Defs, RadialGradient, Rect, Stop } from 'react-native-svg';
 import Animated, {
   Easing,
   interpolate,
