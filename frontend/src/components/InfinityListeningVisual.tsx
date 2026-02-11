@@ -73,8 +73,9 @@ export default function InfinityListeningVisual({
         phase: i / particleCount,
         strand,
         // ~4x thicker than before
-        radius: 6.5 + (i % 3) * 0.9,
-        alpha: 0.62 - (i % 6) * 0.06,
+        // more, smaller pixels (keep strands thick via density instead of huge dots)
+        radius: 2.2 + (i % 3) * 0.55,
+        alpha: 0.58 - (i % 6) * 0.06,
       };
     });
   }, [particleCount]);
