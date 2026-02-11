@@ -1,11 +1,23 @@
 import { Platform } from 'react-native';
 import { useEffect, useRef, useState } from 'react';
 
-// Picovoice native modules (only work in a dev build)
-import { BuiltInKeywords, PorcupineManager } from '@picovoice/porcupine-react-native';
-import { VoiceProcessor } from '@picovoice/react-native-voice-processor';
+// Picovoice native modules (only work in a dev build).
+// IMPORTANT: We load them lazily so Expo Go does not crash.
+let _pv: any = null;
+let _vp: any = null;
 
-const vp = VoiceProcessor.instance;
+async function loadPicovoiceModules() {
+  if (_pv && _vp) return { pv: _pv, vp: _vp };
+  try {
+    const pv = await import('@picovoice/porcupine-react-native');
+    const vp = await import('@picovoice/react-native-voice-processor');
+    _pv = pv;
+    _vp = vp;
+    return { pv, vp };
+  } catch {
+    return { pv: null, vp: null };
+  }
+}
 
 export type WakeWordState = {
   available: boolean;
