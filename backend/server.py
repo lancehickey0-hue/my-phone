@@ -98,6 +98,7 @@ class ChatResponse(BaseModel):
 
 class ChatHistoryResponse(BaseModel):
     device_id: str
+    messages: List[ChatMessage]
 
 class AuthRegisterIn(BaseModel):
     email: str
