@@ -85,6 +85,9 @@ export default function InfinityListeningVisual({
   const cy = s / 2;
   const a = s * 0.22; // scale
 
+  // Increase perceived strand thickness by increasing helix separation.
+  const helix = s * 0.038;
+
   // Parametric lemniscate of Bernoulli
   // x = a * cos(theta) / (1 + sin^2(theta))
   // y = a * sin(theta) * cos(theta) / (1 + sin^2(theta))
