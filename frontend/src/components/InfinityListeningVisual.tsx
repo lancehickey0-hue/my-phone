@@ -88,8 +88,11 @@ export default function InfinityListeningVisual({
   const cy = s / 2;
   const a = s * 0.22; // scale
 
-  // Quadruple helix separation (tighter than before)
+  // Multi-helix separation (tighter than before)
   const helix = s * 0.014;
+
+  // Phase lead/lag between strands to create a braided look.
+  const strandPhase = 0.018;
 
   // Parametric lemniscate of Bernoulli
   // x = a * cos(theta) / (1 + sin^2(theta))
