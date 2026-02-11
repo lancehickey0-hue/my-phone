@@ -34,7 +34,7 @@ export default function InfinityListeningVisual({
   size = 260,
   mode,
   // More, smaller particles looks smoother on mobile
-  particleCount = 140,
+  particleCount = 220,
 }: Props) {
   const t = useSharedValue(0);
   const aura = useSharedValue(0);
@@ -45,8 +45,8 @@ export default function InfinityListeningVisual({
     const shouldSpin = mode === 'listening' || mode === 'thinking';
     if (shouldSpin) {
       t.value = withRepeat(
-        // slower spin (about half speed)
-        withTiming(1, { duration: 4400, easing: Easing.linear }),
+        // fast spin (test)
+        withTiming(1, { duration: 800, easing: Easing.linear }),
         -1,
         false
       );
@@ -65,9 +65,9 @@ export default function InfinityListeningVisual({
   }, [aura, mode, solid, t]);
 
   const particles = useMemo(() => {
-    // Thicker, DNA-like twist: we render two strands (even/odd particles) with opposite-phase wobble.
+    // Quadruple-helix twist: four strands with phase offsets.
     return new Array(particleCount).fill(0).map((_, i) => {
-      const strand = i % 2; // 0 or 1
+      const strand = i % 4; // 0..3
       return {
         id: i,
         phase: i / particleCount,
