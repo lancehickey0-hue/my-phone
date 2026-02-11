@@ -5,6 +5,8 @@ import { useEffect, useRef, useState } from 'react';
 import { BuiltInKeywords, PorcupineManager } from '@picovoice/porcupine-react-native';
 import { VoiceProcessor } from '@picovoice/react-native-voice-processor';
 
+const vp = VoiceProcessor.instance;
+
 export type WakeWordState = {
   available: boolean;
   running: boolean;
