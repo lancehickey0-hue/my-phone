@@ -2,7 +2,7 @@ import { Platform } from 'react-native';
 import { useEffect, useRef, useState } from 'react';
 
 // Picovoice native modules (only work in a dev build)
-import { Porcupine, PorcupineManager } from '@picovoice/porcupine-react-native';
+import { BuiltInKeywords, PorcupineManager } from '@picovoice/porcupine-react-native';
 import { VoiceProcessor } from '@picovoice/react-native-voice-processor';
 
 export type WakeWordState = {
