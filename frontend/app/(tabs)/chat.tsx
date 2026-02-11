@@ -251,6 +251,27 @@ const styles = StyleSheet.create({
     fontSize: 15,
     lineHeight: 20,
   },
+  bubbleActions: {
+    marginTop: 10,
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+  },
+  talkBtn: {
+    minHeight: 36,
+    paddingHorizontal: 12,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  talkText: {
+    color: colors.text,
+    fontSize: 13,
+    fontWeight: '800',
+  },
   composer: {
     borderTopWidth: 1,
     borderTopColor: colors.border,
