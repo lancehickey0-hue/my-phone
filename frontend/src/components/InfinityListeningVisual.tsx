@@ -47,7 +47,7 @@ export default function InfinityListeningVisual({
     if (shouldSpin) {
       t.value = withRepeat(
         // slower flow
-        withTiming(1, { duration: 3200, easing: Easing.linear }),
+        withTiming(1, { duration: 5200, easing: Easing.linear }),
         -1,
         false
       );
@@ -130,7 +130,7 @@ export default function InfinityListeningVisual({
             const y = (a * Math.sin(theta) * Math.cos(theta)) / denom;
 
             // DNA-like twist: two strands wobble in opposite directions around the curve
-            const wobbleBase = helix * Math.sin(2 * Math.PI * (t.value * 0.75 + p.phase * 2.2));
+            const wobbleBase = helix * Math.sin(2 * Math.PI * (t.value * 0.55 + p.phase * 2.2));
             // 4 strands with offsets around the curve
             const strandOffset = (p.strand - 1.5) / 1.5; // -1..1
             const wobble = wobbleBase * strandOffset;
@@ -154,7 +154,7 @@ export default function InfinityListeningVisual({
             const x = (a * Math.cos(theta)) / denom;
             const y = (a * Math.sin(theta) * Math.cos(theta)) / denom;
 
-            const wobbleBase = helix * Math.sin(2 * Math.PI * (t.value * 0.75 + p.phase * 2.2));
+            const wobbleBase = helix * Math.sin(2 * Math.PI * (t.value * 0.55 + p.phase * 2.2));
             const strandOffset = (p.strand - 1.5) / 1.5;
             const wobble = wobbleBase * strandOffset;
 
