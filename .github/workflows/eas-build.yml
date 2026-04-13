@@ -20,7 +20,10 @@ jobs:
           node-version: 18
 
       - name: Install EAS CLI
-        run: npm install -g eas-cli@latest
+        run: |
+          npm install -g eas-cli@latest
+          echo "EAS CLI version:"
+          eas --version
 
       - name: Verify Expo authentication
         run: eas whoami
@@ -32,14 +35,38 @@ jobs:
 
       - name: Initialize EAS project
         run: |
-          echo "Checking EAS project config..."
-          eas init --non-interactive || echo "eas init failed, trying eas build:configure..."
-          eas build:configure --platform android --non-interactive || true
-          echo "EAS project config complete"
+          echo "=== Before init ==="
+          cat app.json | grep -A3 projectId || true
+          eas init --non-interactive || echo "eas init returned non-zero"
+          echo "=== After init ==="
+          cat app.json | grep -A3 projectId || true
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
 
       - name: Build Android APK (preview profile)
-        run: eas build --platform android --profile preview --non-interactive
+        id: build
+        run: |
+          eas build --platform android --profile preview --non-interactive 2>&1 | tee build-output.txt
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        continue-on-error: true
+
+      - name: Show build result
+        if: always()
+        run: |
+          echo "## Build Output" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          cat build-output.txt >> $GITHUB_STEP_SUMMARY 2>/dev/null || echo "No output captured" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          if [ "${{ steps.build.outcome }}" = "failure" ]; then
+            echo "::error::EAS build failed. Check build output above."
+            exit 1
+          fi
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-output
+          path: build-output.txt
+          if-no-files-found: ignore
