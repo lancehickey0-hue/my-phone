@@ -30,6 +30,15 @@ jobs:
       - name: Install dependencies
         run: npm install
 
+      - name: Initialize EAS project
+        run: |
+          echo "Checking EAS project config..."
+          eas init --non-interactive || echo "eas init failed, trying eas build:configure..."
+          eas build:configure --platform android --non-interactive || true
+          echo "EAS project config complete"
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+
       - name: Build Android APK (preview profile)
         run: eas build --platform android --profile preview --non-interactive
         env:
