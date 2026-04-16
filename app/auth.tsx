@@ -1,5 +1,4 @@
 import { useAuthActions } from '@convex-dev/auth/react';
-import { useMutation } from 'convex/react';
 import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import {
@@ -13,12 +12,10 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { api } from '../convex/_generated/api';
 import { borderRadius, colors, fontSize, spacing } from '../src/lib/theme';
 
 export default function AuthScreen() {
   const { signIn } = useAuthActions();
-  const ensureProfile = useMutation(api.profiles.ensureProfile);
   const router = useRouter();
 
   const [mode, setMode] = useState<'signin' | 'signup'>('signin');
@@ -45,8 +42,9 @@ export default function AuthScreen() {
         name: mode === 'signup' ? name.trim() : undefined,
         flow: mode === 'signup' ? 'signUp' : 'signIn',
       });
-      await ensureProfile();
-      router.replace('/(tabs)');
+      // Don't call ensureProfile() here — the auth token isn't propagated yet.
+      // The AuthGuard in _layout.tsx handles profile creation + navigation
+      // once the Convex client confirms authentication.
     } catch (e: any) {
       Alert.alert('Error', e.message || 'Authentication failed');
     } finally {
