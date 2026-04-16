@@ -4,6 +4,7 @@ import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import {
   Alert,
+  Image,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -61,7 +62,11 @@ export default function AuthScreen() {
       <View style={styles.inner}>
         {/* Logo */}
         <View style={styles.logoContainer}>
-          <Text style={styles.logoEmoji}>♾️</Text>
+          <Image
+            source={require('../assets/images/infinity-logo.png')}
+            style={styles.logoImage}
+            resizeMode="contain"
+          />
           <Text style={styles.logoText}>My-Phone</Text>
           <Text style={styles.tagline}>Your devices. Your voice. Your security.</Text>
         </View>
@@ -124,7 +129,7 @@ const styles = StyleSheet.create({
   inner: { flex: 1, justifyContent: 'center', padding: spacing.xxl },
 
   logoContainer: { alignItems: 'center', marginBottom: spacing.xxxl },
-  logoEmoji: { fontSize: 64, marginBottom: spacing.md },
+  logoImage: { width: 160, height: 80, marginBottom: spacing.md },
   logoText: { fontSize: fontSize.hero, fontWeight: '800', color: colors.gold },
   tagline: { fontSize: fontSize.sm, color: colors.textMuted, marginTop: spacing.sm },
 
