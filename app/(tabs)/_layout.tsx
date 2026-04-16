@@ -1,12 +1,21 @@
 import { Tabs } from 'expo-router';
 import React from 'react';
-import { Text } from 'react-native';
+import { Image, Text } from 'react-native';
 import { colors } from '../../src/lib/theme';
 
 function TabIcon({ emoji, focused, isInfinity }: { emoji: string; focused: boolean; isInfinity?: boolean }) {
   if (isInfinity) {
     return (
-      <Text style={{ fontSize: 26, opacity: focused ? 1 : 0.5, color: focused ? colors.gold : colors.textMuted, fontWeight: '300' }}>∞</Text>
+      <Image
+        source={require('../../assets/images/infinity-logo.png')}
+        style={{
+          width: 30,
+          height: 15,
+          opacity: focused ? 1 : 0.5,
+          tintColor: focused ? colors.gold : colors.textMuted,
+        }}
+        resizeMode="contain"
+      />
     );
   }
   return (
