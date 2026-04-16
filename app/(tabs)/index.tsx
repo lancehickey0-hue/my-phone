@@ -2,6 +2,7 @@ import { useQuery } from 'convex/react';
 import { useRouter } from 'expo-router';
 import React from 'react';
 import {
+  Image,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -70,13 +71,17 @@ export default function DashboardTab() {
         ))}
       </View>
 
-      {/* Voice Locator Card — ∞ icon, per-device info */}
+      {/* Voice Locator Card — branded logo */}
       <Pressable
         style={styles.voiceCard}
         onPress={() => router.push('/locate')}
       >
         <View style={styles.voiceCardInner}>
-          <Text style={styles.infinityIcon}>∞</Text>
+          <Image
+            source={require('../../assets/images/infinity-logo.png')}
+            style={styles.voiceLogoImage}
+            resizeMode="contain"
+          />
           <View style={{ flex: 1 }}>
             <Text style={styles.voiceTitle}>Voice Locator</Text>
             <Text style={styles.voiceSubtitle}>
@@ -229,7 +234,7 @@ const styles = StyleSheet.create({
     padding: spacing.lg,
     gap: spacing.md,
   },
-  infinityIcon: { fontSize: 28, color: colors.gold, fontWeight: '300' },
+  voiceLogoImage: { width: 36, height: 18 },
   voiceTitle: { fontSize: fontSize.md, fontWeight: '700', color: colors.gold },
   voiceSubtitle: { fontSize: fontSize.sm, color: colors.textSecondary, marginTop: 2 },
   voiceActiveIndicator: { flexDirection: 'row', alignItems: 'center', gap: 4 },
