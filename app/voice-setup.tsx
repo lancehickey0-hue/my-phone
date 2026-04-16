@@ -1,7 +1,9 @@
+import { Audio } from 'expo-av';
 import { useMutation, useQuery } from 'convex/react';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
 import {
+  Alert,
   Animated,
   Pressable,
   ScrollView,
@@ -31,11 +33,43 @@ export default function VoiceSetupScreen() {
 
   const [recordState, setRecordState] = useState<RecordingState>('idle');
   const [enrollmentId, setEnrollmentId] = useState<string | null>(null);
+  const [permissionGranted, setPermissionGranted] = useState(false);
+  const recordingRef = useRef<Audio.Recording | null>(null);
   const waveAnim = useRef(new Animated.Value(0)).current;
 
   const sampleCount = enrollment?.sampleCount ?? 0;
   const isComplete = enrollment?.isEnrolled ?? false;
   const wakePhrase = device?.customWakePhrase || device?.wakePhrase || '...';
+
+  // Request microphone permission on mount
+  useEffect(() => {
+    (async () => {
+      try {
+        const { status } = await Audio.requestPermissionsAsync();
+        setPermissionGranted(status === 'granted');
+        if (status !== 'granted') {
+          Alert.alert(
+            'Microphone Required',
+            'My-Phone needs microphone access to train your voice. Please enable it in Settings.',
+          );
+        }
+        // Configure audio session for recording
+        await Audio.setAudioModeAsync({
+          allowsRecordingIOS: true,
+          playsInSilentModeIOS: true,
+        });
+      } catch (e) {
+        console.warn('Audio permission error:', e);
+      }
+    })();
+
+    // Cleanup on unmount
+    return () => {
+      if (recordingRef.current) {
+        recordingRef.current.stopAndUnloadAsync().catch(() => {});
+      }
+    };
+  }, []);
 
   // Wave animation during recording
   useEffect(() => {
@@ -54,26 +88,62 @@ export default function VoiceSetupScreen() {
   async function handleStartRecording() {
     if (!typedDeviceId) return;
 
+    if (!permissionGranted) {
+      const { status } = await Audio.requestPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Microphone Required', 'Please enable microphone access in your device settings.');
+        return;
+      }
+      setPermissionGranted(true);
+    }
+
     let eid = enrollmentId;
     if (!eid) {
-      eid = await startEnrollment({ deviceId: typedDeviceId });
-      setEnrollmentId(eid);
+      try {
+        eid = await startEnrollment({ deviceId: typedDeviceId });
+        setEnrollmentId(eid);
+      } catch (e: any) {
+        Alert.alert('Error', e.message || 'Failed to start enrollment');
+        return;
+      }
     }
 
     setRecordState('recording');
 
-    // Simulate 4-second recording
-    // In native build: uses actual microphone + audio processing
-    setTimeout(async () => {
-      setRecordState('processing');
-      try {
-        await recordSample({ enrollmentId: eid as any });
-        setRecordState('done');
-        setTimeout(() => setRecordState('idle'), 1000);
-      } catch (e) {
-        setRecordState('idle');
-      }
-    }, 4000);
+    try {
+      // Start actual microphone recording
+      const recording = new Audio.Recording();
+      await recording.prepareToRecordAsync(Audio.RecordingOptionsPresets.HIGH_QUALITY);
+      await recording.startAsync();
+      recordingRef.current = recording;
+
+      // Record for 4 seconds
+      setTimeout(async () => {
+        setRecordState('processing');
+        try {
+          // Stop recording
+          if (recordingRef.current) {
+            await recordingRef.current.stopAndUnloadAsync();
+            const uri = recordingRef.current.getURI();
+            recordingRef.current = null;
+
+            // Submit the sample to backend
+            await recordSample({ enrollmentId: eid as any });
+
+            setRecordState('done');
+            setTimeout(() => setRecordState('idle'), 1000);
+          }
+        } catch (e: any) {
+          console.warn('Recording stop error:', e);
+          Alert.alert('Error', 'Failed to process recording. Please try again.');
+          setRecordState('idle');
+        }
+      }, 4000);
+    } catch (e: any) {
+      console.warn('Recording start error:', e);
+      Alert.alert('Error', 'Could not start recording. Please check microphone permissions.');
+      setRecordState('idle');
+    }
   }
 
   return (
@@ -146,15 +216,6 @@ export default function VoiceSetupScreen() {
         })}
       </View>
 
-      {/* Status Text */}
-      <Text style={styles.statusText}>
-        {recordState === 'idle' && !isComplete && 'Press the microphone to start recording'}
-        {recordState === 'recording' && 'Recording... Speak naturally'}
-        {recordState === 'processing' && 'Processing voice sample...'}
-        {recordState === 'done' && `Sample ${sampleCount} recorded!`}
-        {isComplete && 'Voice training complete! ✅'}
-      </Text>
-
       {/* Record Button */}
       {!isComplete && (
         <Pressable
@@ -162,52 +223,46 @@ export default function VoiceSetupScreen() {
             styles.recordBtn,
             recordState === 'recording' && styles.recordBtnActive,
             recordState === 'processing' && styles.recordBtnProcessing,
+            recordState === 'done' && styles.recordBtnDone,
           ]}
           onPress={handleStartRecording}
           disabled={recordState !== 'idle'}
         >
-          <Text style={styles.recordEmoji}>
-            {recordState === 'recording' ? '🔴' : recordState === 'processing' ? '⏳' : '🎙️'}
+          <Text style={styles.recordBtnText}>
+            {recordState === 'idle'
+              ? `🎙️ Tap & Say "${wakePhrase}"`
+              : recordState === 'recording'
+                ? '🔴 Recording...'
+                : recordState === 'processing'
+                  ? '⏳ Processing...'
+                  : '✅ Got it!'}
           </Text>
         </Pressable>
       )}
 
-      {/* Complete Actions */}
+      {/* Complete State */}
       {isComplete && (
-        <View style={styles.completeActions}>
-          <Pressable
-            style={styles.primaryBtn}
-            onPress={() => router.push('/biometric-setup')}
-          >
-            <Text style={styles.primaryBtnText}>Set Up Biometric Security →</Text>
-          </Pressable>
-          <Pressable
-            style={styles.secondaryBtn}
-            onPress={() => router.back()}
-          >
-            <Text style={styles.secondaryBtnText}>← Back to Locator</Text>
-          </Pressable>
-          <Pressable
-            style={styles.secondaryBtn}
-            onPress={() => {
-              setEnrollmentId(null);
-              if (typedDeviceId) startEnrollment({ deviceId: typedDeviceId });
-            }}
-          >
-            <Text style={styles.secondaryBtnText}>🔄 Retrain Voice</Text>
+        <View style={styles.completeCard}>
+          <Text style={styles.completeEmoji}>✅</Text>
+          <Text style={styles.completeTitle}>Voice Print Complete!</Text>
+          <Text style={styles.completeDesc}>
+            {device?.name ?? 'This device'} will now respond to your voice saying "{wakePhrase}".
+          </Text>
+          <Pressable style={styles.doneBtn} onPress={() => router.back()}>
+            <Text style={styles.doneBtnText}>Done</Text>
           </Pressable>
         </View>
       )}
 
-      {/* Tips */}
-      <View style={styles.tipsCard}>
-        <Text style={styles.tipsTitle}>💡 Tips for best results</Text>
-        <Text style={styles.tip}>• Speak at your normal volume and pace</Text>
-        <Text style={styles.tip}>• Record in a quiet environment</Text>
-        <Text style={styles.tip}>• Say the full phrase naturally each time</Text>
-        <Text style={styles.tip}>• Each recording is about 4 seconds</Text>
-        <Text style={styles.tip}>• Each device has its own wake phrase</Text>
-      </View>
+      {/* Permission info */}
+      {!permissionGranted && (
+        <View style={styles.permissionCard}>
+          <Text style={styles.permissionTitle}>⚠️ Microphone Access Required</Text>
+          <Text style={styles.permissionDesc}>
+            Voice training needs microphone access to record your wake phrase samples. Please grant permission when prompted.
+          </Text>
+        </View>
+      )}
 
       <View style={{ height: 40 }} />
     </ScrollView>
@@ -218,73 +273,74 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bgPrimary },
   content: { padding: spacing.lg, alignItems: 'center' },
 
-  header: { alignItems: 'center', marginBottom: spacing.xxl },
+  header: { alignItems: 'center', marginBottom: spacing.xl },
   headerEmoji: { fontSize: 48, marginBottom: spacing.md },
   title: { fontSize: fontSize.title, fontWeight: '800', color: colors.gold },
+  subtitle: { fontSize: fontSize.sm, color: colors.textSecondary, marginTop: spacing.sm, textAlign: 'center', lineHeight: 20 },
+
   deviceBadge: {
     flexDirection: 'row', alignItems: 'center', gap: spacing.sm,
-    backgroundColor: colors.goldDim, borderRadius: borderRadius.full,
+    backgroundColor: colors.bgCard, borderRadius: borderRadius.full,
     paddingHorizontal: spacing.md, paddingVertical: spacing.xs,
-    borderWidth: 1, borderColor: colors.goldBorder, marginTop: spacing.sm,
+    marginTop: spacing.sm, borderWidth: 1, borderColor: colors.border,
   },
   deviceBadgeEmoji: { fontSize: 16 },
-  deviceBadgeText: { fontSize: fontSize.sm, fontWeight: '600', color: colors.gold },
-  subtitle: { fontSize: fontSize.sm, color: colors.textSecondary, textAlign: 'center', marginTop: spacing.sm, lineHeight: 20 },
+  deviceBadgeText: { fontSize: fontSize.sm, fontWeight: '600', color: colors.textPrimary },
 
   phraseCard: {
     backgroundColor: colors.bgCard, borderRadius: borderRadius.lg, padding: spacing.xl,
-    width: '100%', alignItems: 'center',
-    borderWidth: 1, borderColor: colors.goldBorder, marginBottom: spacing.xxl,
+    width: '100%', alignItems: 'center', marginBottom: spacing.xl,
+    borderWidth: 1, borderColor: colors.goldBorder,
   },
   phraseLabel: { fontSize: 10, color: colors.textMuted, letterSpacing: 1.5, marginBottom: spacing.sm },
-  phraseText: { fontSize: fontSize.lg, fontWeight: '700', color: colors.gold, textAlign: 'center' },
+  phraseText: { fontSize: fontSize.xl, fontWeight: '700', color: colors.gold },
 
-  progressRow: { flexDirection: 'row', gap: spacing.lg, marginBottom: spacing.xxl },
+  progressRow: { flexDirection: 'row', gap: spacing.lg, marginBottom: spacing.xl },
   progressDot: {
     width: 44, height: 44, borderRadius: 22,
     backgroundColor: colors.bgCard, borderWidth: 2, borderColor: colors.border,
     alignItems: 'center', justifyContent: 'center',
   },
-  progressDotComplete: { backgroundColor: colors.goldDim, borderColor: colors.gold },
+  progressDotComplete: { borderColor: colors.success, backgroundColor: colors.successDim },
   progressDotActive: { borderColor: colors.gold, backgroundColor: colors.goldDim },
   progressDotText: { fontSize: fontSize.md, fontWeight: '700', color: colors.textMuted },
-  progressDotTextComplete: { color: colors.gold },
+  progressDotTextComplete: { color: colors.success },
 
   waveContainer: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
-    height: 60, width: '100%',
-    backgroundColor: colors.bgCard, borderRadius: borderRadius.md,
-    paddingHorizontal: spacing.md, gap: 3, marginBottom: spacing.lg,
-    borderWidth: 1, borderColor: colors.border,
+    gap: 3, height: 60, marginBottom: spacing.xl, width: '100%',
   },
-  waveBar: { width: 3, borderRadius: 2, minHeight: 4 },
-
-  statusText: { fontSize: fontSize.sm, color: colors.textSecondary, marginBottom: spacing.xxl },
+  waveBar: { width: 4, borderRadius: 2 },
 
   recordBtn: {
-    width: 80, height: 80, borderRadius: 40,
-    backgroundColor: colors.bgCard, borderWidth: 3, borderColor: colors.goldBorder,
-    alignItems: 'center', justifyContent: 'center', marginBottom: spacing.xxl,
+    backgroundColor: colors.gold, borderRadius: borderRadius.lg,
+    paddingHorizontal: spacing.xxl, paddingVertical: spacing.lg,
+    width: '100%', alignItems: 'center',
   },
-  recordBtnActive: { borderColor: colors.danger, backgroundColor: colors.dangerDim },
-  recordBtnProcessing: { borderColor: colors.textMuted, opacity: 0.5 },
-  recordEmoji: { fontSize: 32 },
+  recordBtnActive: { backgroundColor: colors.danger },
+  recordBtnProcessing: { backgroundColor: colors.textMuted },
+  recordBtnDone: { backgroundColor: colors.success },
+  recordBtnText: { color: colors.bgPrimary, fontWeight: '700', fontSize: fontSize.md },
 
-  completeActions: { width: '100%', gap: spacing.md, marginBottom: spacing.xxl },
-  primaryBtn: {
-    backgroundColor: colors.gold, borderRadius: borderRadius.md, padding: spacing.lg, alignItems: 'center',
+  completeCard: {
+    backgroundColor: colors.bgCard, borderRadius: borderRadius.lg, padding: spacing.xxl,
+    width: '100%', alignItems: 'center',
+    borderWidth: 1, borderColor: colors.success,
   },
-  primaryBtnText: { color: colors.bgPrimary, fontWeight: '700', fontSize: fontSize.md },
-  secondaryBtn: {
-    backgroundColor: colors.bgCard, borderRadius: borderRadius.md, padding: spacing.md,
-    alignItems: 'center', borderWidth: 1, borderColor: colors.border,
+  completeEmoji: { fontSize: 48, marginBottom: spacing.md },
+  completeTitle: { fontSize: fontSize.lg, fontWeight: '700', color: colors.success, marginBottom: spacing.sm },
+  completeDesc: { fontSize: fontSize.sm, color: colors.textSecondary, textAlign: 'center', lineHeight: 20 },
+  doneBtn: {
+    backgroundColor: colors.gold, borderRadius: borderRadius.sm,
+    paddingHorizontal: spacing.xxl, paddingVertical: spacing.md, marginTop: spacing.lg,
   },
-  secondaryBtnText: { color: colors.textSecondary, fontWeight: '600', fontSize: fontSize.sm },
+  doneBtnText: { color: colors.bgPrimary, fontWeight: '700', fontSize: fontSize.md },
 
-  tipsCard: {
+  permissionCard: {
     backgroundColor: colors.bgCard, borderRadius: borderRadius.lg, padding: spacing.lg,
-    width: '100%', borderWidth: 1, borderColor: colors.border,
+    width: '100%', marginTop: spacing.lg,
+    borderWidth: 1, borderColor: colors.warning,
   },
-  tipsTitle: { fontSize: fontSize.md, fontWeight: '700', color: colors.gold, marginBottom: spacing.md },
-  tip: { fontSize: fontSize.sm, color: colors.textSecondary, lineHeight: 22 },
+  permissionTitle: { fontSize: fontSize.md, fontWeight: '700', color: colors.warning, marginBottom: spacing.sm },
+  permissionDesc: { fontSize: fontSize.sm, color: colors.textSecondary, lineHeight: 20 },
 });
