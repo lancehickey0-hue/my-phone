@@ -3,6 +3,7 @@ import { useRouter } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
 import {
   Animated,
+  Image,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -145,7 +146,7 @@ export default function LocateTab() {
         </View>
       )}
 
-      {/* ∞ Infinity Logo Button — replaces mic */}
+      {/* ∞ Infinity Logo Button — uses actual branded logo */}
       <View style={styles.infinityContainer}>
         {/* Outer pulse rings (visible when listening) */}
         {listenState === 'listening' && (
@@ -185,14 +186,14 @@ export default function LocateTab() {
           ) : listenState === 'detected' ? (
             <Text style={styles.infinityCheckmark}>✓</Text>
           ) : (
-            <Animated.Text
+            <Animated.Image
+              source={require('../../assets/images/infinity-logo.png')}
               style={[
-                styles.infinitySymbol,
+                styles.infinityLogoImage,
                 { opacity: listenState === 'listening' ? infinityFadeAnim : 1 },
               ]}
-            >
-              ∞
-            </Animated.Text>
+              resizeMode="contain"
+            />
           )}
         </Pressable>
       </View>
@@ -331,7 +332,7 @@ const styles = StyleSheet.create({
   infinityRingMiddle: { width: 170, height: 170 },
   infinityRingDanger: { width: 200, height: 200, borderColor: colors.danger, borderWidth: 2 },
   infinityButton: {
-    width: 120, height: 120, borderRadius: 60,
+    width: 140, height: 140, borderRadius: 70,
     backgroundColor: 'transparent', borderWidth: 3, borderColor: colors.goldBorder,
     alignItems: 'center', justifyContent: 'center', zIndex: 10,
   },
@@ -339,7 +340,7 @@ const styles = StyleSheet.create({
   infinityButtonDetected: { borderColor: colors.success, backgroundColor: colors.successDim },
   infinityButtonActivated: { borderColor: colors.danger, backgroundColor: colors.dangerDim },
   infinityButtonDisabled: { opacity: 0.5, borderColor: colors.textMuted },
-  infinitySymbol: { fontSize: 56, color: colors.gold, fontWeight: '300' },
+  infinityLogoImage: { width: 90, height: 45 },
   infinityCheckmark: { fontSize: 44, color: colors.success, fontWeight: '700' },
   infinityAlarmEmoji: { fontSize: 44 },
 
