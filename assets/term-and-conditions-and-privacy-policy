@@ -1,0 +1,8 @@
+import { WebView } from 'react-native-webview';
+import { Asset } from 'expo-asset';
+
+// Terms
+<WebView source={require('./assets/terms-and-conditions.html')} />
+
+// Privacy
+<WebView source={require('./assets/privacy-policy.html')} />
