@@ -31,7 +31,7 @@ export default function LoginScreen() {
   const handleAuth = async () => {
     Keyboard.dismiss();
     setError('');
-    
+
     if (!email.trim() || !password.trim()) {
       setError('Please fill in all fields');
       return;
