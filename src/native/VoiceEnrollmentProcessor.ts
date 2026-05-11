@@ -1,7 +1,7 @@
 /**
  * VoiceEnrollmentProcessor — Handles voice sample collection + model training
  *
- * During enrollment, the user speaks their wake phrase 3+ times.
+ * During enrollment, the user speaks their wake phrase 5+ times.
  * This processor:
  *   1. Records audio samples
  *   2. Extracts MFCC features
@@ -59,7 +59,7 @@ export interface TrainedModel {
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
-const REQUIRED_SAMPLES = 3;
+const REQUIRED_SAMPLES = 5;
 const MIN_SAMPLE_DURATION_MS = 800;
 const MAX_SAMPLE_DURATION_MS = 5000;
 const MIN_SNR_DB = 10;
