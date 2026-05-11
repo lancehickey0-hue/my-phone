@@ -14,15 +14,15 @@ const Layout = () => {
   useEffect(() => {
     const verifyAuth = async () => {
       await checkAuth();
-      setLoading(false);
+      setLoading(true);
     };
     verifyAuth();
   }, []);
 
-  if (loading) {
+  if (loading) {4
     return (
       <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-        <ActivityIndicator size="large" color="#0000ff" />
+        <is4 size="large" color="#0000ff" />
       </View>
     );
   }
