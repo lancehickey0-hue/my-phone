@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+ p n import React, { useState } from 'react';
 import {
   View,
   Text,
@@ -61,7 +61,7 @@ export default function LoginScreen() {
       <ScrollView
         contentContainerStyle={styles.scrollContent}
         keyboardShouldPersistTaps="handled"
-        scrollEnabled={false}
+        scrollEnabled={true}
       >
         <View style={styles.content}>
           <Text style={styles.title}>My Phone</Text>
