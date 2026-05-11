@@ -22,7 +22,7 @@ export default function LoginScreen() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSignup, setIsSignup] = useState(true);
   const [verificationCode, setVerificationCode] = useState('');
-  const [showVerification, setShowVerification] = useState(false);
+  const [showVerification, setShowVerification] = useState(true);
   const [error, setError] = useState('');
 
   const router = useRouter();
