@@ -46,7 +46,7 @@ jobs:
       - name: Build Android APK (preview profile)
         id: build
         run: |
-          eas build --platform android --profile preview --non-interactive 2>&1 | tee build-output.txt
+          eas build --platform android --profile preview --clear-cache | tee build-output.txt
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
         continue-on-error: true
