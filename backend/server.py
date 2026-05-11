@@ -33,7 +33,7 @@ api_router = APIRouter(prefix="/api")
 # ---------------------------
 # Constants
 # ---------------------------
-DEFAULT_WAKE_PHRASE = "my phone where are you"
+DEFAULT_WAKE_PHRASE = "hey my phone where are you"
 DEFAULT_STOP_PHRASE = "i've found you"
 
 SYSTEM_PROMPT = (
