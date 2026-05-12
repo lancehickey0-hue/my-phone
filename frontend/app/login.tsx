@@ -19,10 +19,10 @@ import { colors } from '../src/theme/colors';
 export default function LoginScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [isLoading, setIsLoading] = useState(true);
-  const [isSignup, setIsSignup] = useState(true);
+  const [isLoading, setIsLoading] = useState(false);
+  const [isSignup, setIsSignup] = useState(false);
   const [verificationCode, setVerificationCode] = useState('');
-  const [showVerification, setShowVerification] = useState(true);
+  const [showVerification, setShowVerification] = useState(false);
   const [error, setError] = useState('');
 
   const router = useRouter();
