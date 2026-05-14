@@ -7,6 +7,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -23,18 +24,20 @@ export default function AuthScreen() {
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
 
   async function handleAuth() {
     if (!email.trim() || !password.trim()) {
-      Alert.alert('Error', 'Please fill in all fields');
+      setError('Please fill in all fields');
       return;
     }
     if (mode === 'signup' && !name.trim()) {
-      Alert.alert('Error', 'Please enter your name');
+      setError('Please enter your name');
       return;
     }
 
     setLoading(true);
+    setError('');
     try {
       await signIn('password', {
         email: email.trim(),
@@ -42,12 +45,9 @@ export default function AuthScreen() {
         name: mode === 'signup' ? name.trim() : undefined,
         flow: mode === 'signup' ? 'signUp' : 'signIn',
       });
-      // Don't call ensureProfile() here — the auth token isn't propagated yet.
-      // The AuthGuard in _layout.tsx handles profile creation + navigation
-      // once the Convex client confirms authentication.
+      // Convex auth handles navigation after successful verification
     } catch (e: any) {
-      Alert.alert('Error', e.message || 'Authentication failed');
-    } finally {
+      setError(e.message || 'Authentication failed');
       setLoading(false);
     }
   }
@@ -56,75 +56,106 @@ export default function AuthScreen() {
     <KeyboardAvoidingView
       style={styles.container}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
     >
-      <View style={styles.inner}>
-        {/* Logo */}
-        <View style={styles.logoContainer}>
-          <Image
-            source={require('../assets/images/infinity-logo.png')}
-            style={styles.logoImage}
-            resizeMode="contain"
-          />
-          <Text style={styles.logoText}>My-Phone</Text>
-          <Text style={styles.tagline}>Your devices. Your voice. Your security.</Text>
-        </View>
+      <ScrollView
+        contentContainerStyle={styles.scrollContainer}
+        keyboardShouldPersistTaps="handled"
+        scrollEnabled={true}
+      >
+        <View style={styles.inner}>
+          {/* Logo */}
+          <View style={styles.logoContainer}>
+            <Image
+              source={require('../assets/images/infinity-logo.png')}
+              style={styles.logoImage}
+              resizeMode="contain"
+            />
+            <Text style={styles.logoText}>My-Phone</Text>
+            <Text style={styles.tagline}>Your devices. Your voice. Your security.</Text>
+          </View>
 
-        {/* Form */}
-        <View style={styles.form}>
-          {mode === 'signup' && (
+          {/* Form */}
+          <View style={styles.form}>
+            {error ? (
+              <View style={styles.errorBox}>
+                <Text style={styles.errorText}>{error}</Text>
+              </View>
+            ) : null}
+
+            {mode === 'signup' && (
+              <TextInput
+                style={styles.input}
+                placeholder="Full Name"
+                placeholderTextColor={colors.textMuted}
+                value={name}
+                onChangeText={setName}
+                autoCapitalize="words"
+                editable={!loading}
+              />
+            )}
             <TextInput
               style={styles.input}
-              placeholder="Full Name"
+              placeholder="Email"
               placeholderTextColor={colors.textMuted}
-              value={name}
-              onChangeText={setName}
-              autoCapitalize="words"
+              value={email}
+              onChangeText={setEmail}
+              keyboardType="email-address"
+              autoCapitalize="none"
+              editable={!loading}
             />
-          )}
-          <TextInput
-            style={styles.input}
-            placeholder="Email"
-            placeholderTextColor={colors.textMuted}
-            value={email}
-            onChangeText={setEmail}
-            keyboardType="email-address"
-            autoCapitalize="none"
-          />
-          <TextInput
-            style={styles.input}
-            placeholder="Password"
-            placeholderTextColor={colors.textMuted}
-            value={password}
-            onChangeText={setPassword}
-            secureTextEntry
-          />
+            <TextInput
+              style={styles.input}
+              placeholder="Password"
+              placeholderTextColor={colors.textMuted}
+              value={password}
+              onChangeText={setPassword}
+              secureTextEntry
+              editable={!loading}
+            />
 
-          <Pressable
-            style={[styles.submitBtn, loading && styles.submitBtnDisabled]}
-            onPress={handleAuth}
+            <Pressable
+              style={[styles.submitBtn, loading && styles.submitBtnDisabled]}
+              onPress={handleAuth}
+              disabled={loading}
+            >
+              <Text style={styles.submitText}>
+                {loading ? '...' : mode === 'signin' ? 'Sign In' : 'Create Account'}
+              </Text>
+            </Pressable>
+
+            <Pressable onPress={() => {
+              setMode(mode === 'signin' ? 'signup' : 'signin');
+              setError('');
+              setEmail('');
+              setPassword('');
+              setName('');
+            }}
             disabled={loading}
-          >
-            <Text style={styles.submitText}>
-              {loading ? '...' : mode === 'signin' ? 'Sign In' : 'Create Account'}
-            </Text>
-          </Pressable>
+            >
+              <Text style={styles.toggleText}>
+                {mode === 'signin'
+                  ? "Don't have an account? Sign Up"
+                  : 'Already have an account? Sign In'}
+              </Text>
+            </Pressable>
 
-          <Pressable onPress={() => setMode(mode === 'signin' ? 'signup' : 'signin')}>
-            <Text style={styles.toggleText}>
-              {mode === 'signin'
-                ? "Don't have an account? Sign Up"
-                : 'Already have an account? Sign In'}
+            <Text style={styles.infoText}>
+              {mode === 'signup'
+                ? 'You will receive a verification email. Check your inbox to confirm.'
+                : 'Sign in with your Convex account credentials.'}
             </Text>
-          </Pressable>
+          </View>
         </View>
-      </View>
+      </ScrollView>
     </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bgPrimary },
-  inner: { flex: 1, justifyContent: 'center', padding: spacing.xxl },
+  scrollContainer: { flexGrow: 1, justifyContent: 'center', padding: spacing.xxl },
+  inner: { justifyContent: 'center' },
 
   logoContainer: { alignItems: 'center', marginBottom: spacing.xxxl },
   logoImage: { width: 160, height: 80, marginBottom: spacing.md },
@@ -132,6 +163,17 @@ const styles = StyleSheet.create({
   tagline: { fontSize: fontSize.sm, color: colors.textMuted, marginTop: spacing.sm },
 
   form: { gap: spacing.md },
+  errorBox: {
+    backgroundColor: '#ff4444',
+    padding: spacing.md,
+    borderRadius: borderRadius.md,
+    marginBottom: spacing.md,
+  },
+  errorText: {
+    color: '#fff',
+    fontSize: fontSize.sm,
+    fontWeight: '600',
+  },
   input: {
     backgroundColor: colors.bgCard,
     borderRadius: borderRadius.md,
@@ -151,4 +193,5 @@ const styles = StyleSheet.create({
   submitBtnDisabled: { opacity: 0.5 },
   submitText: { color: colors.bgPrimary, fontWeight: '700', fontSize: fontSize.lg },
   toggleText: { color: colors.textSecondary, textAlign: 'center', marginTop: spacing.lg, fontSize: fontSize.sm },
+  infoText: { color: colors.textMuted, textAlign: 'center', marginTop: spacing.lg, fontSize: fontSize.sm, fontStyle: 'italic' },
 });
