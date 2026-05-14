@@ -72,7 +72,7 @@ export default function AuthScreen() {
               resizeMode="contain"
             />
             <Text style={styles.logoText}>My-Phone</Text>
-            <Text style={styles.tagline}>Your devices. Your voice. Your security.</Text>
+            <Text style={styles.tagline}>Because phones don't just disappear</Text>
           </View>
 
           {/* Form */}
