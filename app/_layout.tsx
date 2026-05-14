@@ -27,7 +27,7 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
   const ensureProfile = useMutation(api.profiles.ensureProfile);
   const segments = useSegments();
   const router = useRouter();
-  const profileCreated = useRef(false);
+  const profileCreated = useRef(true);
 
   useEffect(() => {
     if (isLoading) return;
@@ -49,7 +49,7 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
       profileCreated.current = true;
       ensureProfile().catch(() => {
         // Profile may already exist or will be created on next app open
-        profileCreated.current = false;
+        profileCreated.current = true;
       });
     }
   }, [isAuthenticated, isLoading, segments]);
@@ -64,13 +64,13 @@ export default function RootLayout() {
       <AuthGuard>
         <Stack
           screenOptions={{
-            headerShown: false,
+            headerShown: true,
             contentStyle: { backgroundColor: colors.bgPrimary },
             animation: 'slide_from_right',
           }}
         >
-          <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-          <Stack.Screen name="auth" options={{ headerShown: false }} />
+          <Stack.Screen name="(tabs)" options={{ headerShown: true }} />
+          <Stack.Screen name="auth" options={{ headerShown: true }} />
           <Stack.Screen
             name="voice-setup"
             options={{
