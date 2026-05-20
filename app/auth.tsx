@@ -38,16 +38,31 @@ export default function AuthScreen() {
 
     setLoading(true);
     setError('');
+    
     try {
-      await signIn('password', {
-        email: email.trim(),
-        password,
-        name: mode === 'signup' ? name.trim() : undefined,
-        flow: mode === 'signup' ? 'signUp' : 'signIn',
-      });
-      // Convex auth handles navigation after successful verification
+      console.log('🔐 Starting auth with:', { email: email.trim(), flow: mode === 'signup' ? 'signUp' : 'signIn' });
+      
+      const result = await Promise.race([
+        signIn('password', {
+          email: email.trim(),
+          password,
+          name: mode === 'signup' ? name.trim() : undefined,
+          flow: mode === 'signup' ? 'signUp' : 'signIn',
+        }),
+        new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Auth timeout - check your Convex backend')), 30000)
+        )
+      ]);
+      
+      console.log('✅ Auth successful:', result);
     } catch (e: any) {
-      setError(e.message || 'Authentication failed');
+      console.error('❌ Auth error:', e);
+      const errorMsg = e.message || 'Authentication failed. Please try again.';
+      setError(errorMsg);
+      
+      // Show alert so you can see the error
+      Alert.alert('Auth Error', errorMsg, [{ text: 'OK' }]);
+      
       setLoading(false);
     }
   }
@@ -120,7 +135,7 @@ export default function AuthScreen() {
               disabled={loading}
             >
               <Text style={styles.submitText}>
-                {loading ? '...' : mode === 'signin' ? 'Sign In' : 'Create Account'}
+                {loading ? 'Signing in...' : mode === 'signin' ? 'Sign In' : 'Create Account'}
               </Text>
             </Pressable>
 
