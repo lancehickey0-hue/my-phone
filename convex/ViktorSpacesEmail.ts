@@ -81,24 +81,6 @@ async function sendEmail({
  * - Sends from project-specific email addresses
  * - Keeps the Resend API key secure on the backend
  */
-export const ViktorSpacesEmail = Email({
-  id: "viktor-spaces-email",
-  maxAge: 60 * 15, // 15 minutes
-
-  async generateVerificationToken() {
-    return generateOTP();
-  },
-
-  async sendVerificationRequest({ identifier: email, token }) {
-    await sendEmail({
-      email,
-      token,
-      subject: "Verify your email",
-      heading: "Verify your email",
-      description: "Your verification code is:",
-    });
-  },
-});
 
 /**
  * Password reset email provider.
