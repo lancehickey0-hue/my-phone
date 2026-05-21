@@ -87,11 +87,4 @@ async function sendEmail({
  * Uses the same Viktor Spaces API but with different email template.
  */
 
-      email,
-      token,
-      subject: "Reset your password",
-      heading: "Reset your password",
-      description: "Your password reset code is:",
-    });
-  },
-});
+ 
