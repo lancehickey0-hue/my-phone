@@ -86,16 +86,7 @@ async function sendEmail({
  * Password reset email provider.
  * Uses the same Viktor Spaces API but with different email template.
  */
-export const ViktorSpacesPasswordReset = Email({
-  id: "viktor-spaces-password-reset",
-  maxAge: 60 * 15, // 15 minutes
 
-  async generateVerificationToken() {
-    return generateOTP();
-  },
-
-  async sendVerificationRequest({ identifier: email, token }) {
-    await sendEmail({
       email,
       token,
       subject: "Reset your password",
