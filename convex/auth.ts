@@ -36,14 +36,6 @@ if (jwtPrivateKey) {
 }
 
 export const { auth, signIn, signOut, store, isAuthenticated } = convexAuth({
-  providers: [
-    Password({
-      verify: ViktorSpacesEmail,
-      reset: ViktorSpacesPasswordReset,
-    }),
-    TestCredentials,
-  ],
-});
 
 export const currentUser = query({
   args: {},
