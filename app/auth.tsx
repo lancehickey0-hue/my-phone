@@ -1,5 +1,4 @@
 import { useAuthActions } from '@convex-dev/auth/react';
-import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import {
   Alert,
@@ -17,16 +16,17 @@ import { borderRadius, colors, fontSize, spacing } from '../src/lib/theme';
 
 export default function AuthScreen() {
   const { signIn } = useAuthActions();
-  const router = useRouter();
 
   const [mode, setMode] = useState<'signin' | 'signup'>('signin');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
+  const [verificationCode, setVerificationCode] = useState('');
+  const [step, setStep] = useState<'credentials' | 'verification'>('credentials');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  async function handleAuth() {
+  async function handleCredentials() {
     if (!email.trim() || !password.trim()) {
       setError('Please fill in all fields');
       return;
@@ -40,29 +40,55 @@ export default function AuthScreen() {
     setError('');
     
     try {
-      console.log('🔐 Starting auth with:', { email: email.trim(), flow: mode === 'signup' ? 'signUp' : 'signIn' });
+      console.log('🔐 Step 1: Submitting credentials...');
       
-      const result = await Promise.race([
-        signIn('password', {
-          email: email.trim(),
-          password,
-          name: mode === 'signup' ? name.trim() : undefined,
-          flow: mode === 'signup' ? 'signUp' : 'signIn',
-        }),
-        new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('Auth timeout - check your Convex backend')), 30000)
-        )
-      ]);
+      // This step sends the OTP code to their email
+      await signIn('password', {
+        email: email.trim(),
+        password,
+        name: mode === 'signup' ? name.trim() : undefined,
+        flow: mode === 'signup' ? 'signUp' : 'signIn',
+      });
       
-      console.log('✅ Auth successful:', result);
+      console.log('✅ OTP sent! Moving to verification step');
+      setStep('verification');
+      setLoading(false);
     } catch (e: any) {
-      console.error('❌ Auth error:', e);
-      const errorMsg = e.message || 'Authentication failed. Please try again.';
+      console.error('❌ Credentials error:', e);
+      const errorMsg = e.message || 'Failed to process credentials. Please try again.';
       setError(errorMsg);
+      Alert.alert('Error', errorMsg);
+      setLoading(false);
+    }
+  }
+
+  async function handleVerification() {
+    if (!verificationCode.trim()) {
+      setError('Please enter the verification code from your email');
+      return;
+    }
+
+    setLoading(true);
+    setError('');
+    
+    try {
+      console.log('🔐 Step 2: Submitting verification code...');
       
-      // Show alert so you can see the error
-      Alert.alert('Auth Error', errorMsg, [{ text: 'OK' }]);
+      // Complete the auth with the verification code
+      const result = await signIn('password', {
+        email: email.trim(),
+        password,
+        code: verificationCode.trim(),
+        flow: mode === 'signup' ? 'signUp' : 'signIn',
+      });
       
+      console.log('✅ Auth successful!');
+      // Navigation handled automatically by _layout.tsx
+    } catch (e: any) {
+      console.error('❌ Verification error:', e);
+      const errorMsg = e.message || 'Invalid verification code. Please try again.';
+      setError(errorMsg);
+      Alert.alert('Error', errorMsg);
       setLoading(false);
     }
   }
@@ -98,67 +124,113 @@ export default function AuthScreen() {
               </View>
             ) : null}
 
-            {mode === 'signup' && (
-              <TextInput
-                style={styles.input}
-                placeholder="Full Name"
-                placeholderTextColor={colors.textMuted}
-                value={name}
-                onChangeText={setName}
-                autoCapitalize="words"
-                editable={!loading}
-              />
+            {step === 'credentials' ? (
+              <>
+                {mode === 'signup' && (
+                  <TextInput
+                    style={styles.input}
+                    placeholder="Full Name"
+                    placeholderTextColor={colors.textMuted}
+                    value={name}
+                    onChangeText={setName}
+                    autoCapitalize="words"
+                    editable={!loading}
+                  />
+                )}
+                <TextInput
+                  style={styles.input}
+                  placeholder="Email"
+                  placeholderTextColor={colors.textMuted}
+                  value={email}
+                  onChangeText={setEmail}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                  editable={!loading}
+                />
+                <TextInput
+                  style={styles.input}
+                  placeholder="Password"
+                  placeholderTextColor={colors.textMuted}
+                  value={password}
+                  onChangeText={setPassword}
+                  secureTextEntry
+                  editable={!loading}
+                />
+
+                <Pressable
+                  style={[styles.submitBtn, loading && styles.submitBtnDisabled]}
+                  onPress={handleCredentials}
+                  disabled={loading}
+                >
+                  <Text style={styles.submitText}>
+                    {loading ? 'Sending code...' : mode === 'signin' ? 'Sign In' : 'Create Account'}
+                  </Text>
+                </Pressable>
+
+                <Pressable onPress={() => {
+                  setMode(mode === 'signin' ? 'signup' : 'signin');
+                  setError('');
+                  setEmail('');
+                  setPassword('');
+                  setName('');
+                }}
+                disabled={loading}
+                >
+                  <Text style={styles.toggleText}>
+                    {mode === 'signin'
+                      ? "Don't have an account? Sign Up"
+                      : 'Already have an account? Sign In'}
+                  </Text>
+                </Pressable>
+              </>
+            ) : (
+              <>
+                <Text style={styles.verificationInfo}>
+                  We sent a verification code to {email}. Enter it below to complete your sign in.
+                </Text>
+
+                <TextInput
+                  style={[styles.input, styles.codeInput]}
+                  placeholder="Enter 6-digit code"
+                  placeholderTextColor={colors.textMuted}
+                  value={verificationCode}
+                  onChangeText={setVerificationCode}
+                  keyboardType="number-pad"
+                  maxLength={6}
+                  editable={!loading}
+                  textAlign="center"
+                />
+
+                <Pressable
+                  style={[styles.submitBtn, loading && styles.submitBtnDisabled]}
+                  onPress={handleVerification}
+                  disabled={loading}
+                >
+                  <Text style={styles.submitText}>
+                    {loading ? 'Verifying...' : 'Verify & Sign In'}
+                  </Text>
+                </Pressable>
+
+                <Pressable onPress={() => {
+                  setStep('credentials');
+                  setVerificationCode('');
+                  setError('');
+                }}
+                disabled={loading}
+                >
+                  <Text style={styles.toggleText}>
+                    Back to Sign In
+                  </Text>
+                </Pressable>
+              </>
             )}
-            <TextInput
-              style={styles.input}
-              placeholder="Email"
-              placeholderTextColor={colors.textMuted}
-              value={email}
-              onChangeText={setEmail}
-              keyboardType="email-address"
-              autoCapitalize="none"
-              editable={!loading}
-            />
-            <TextInput
-              style={styles.input}
-              placeholder="Password"
-              placeholderTextColor={colors.textMuted}
-              value={password}
-              onChangeText={setPassword}
-              secureTextEntry
-              editable={!loading}
-            />
-
-            <Pressable
-              style={[styles.submitBtn, loading && styles.submitBtnDisabled]}
-              onPress={handleAuth}
-              disabled={loading}
-            >
-              <Text style={styles.submitText}>
-                {loading ? 'Signing in...' : mode === 'signin' ? 'Sign In' : 'Create Account'}
-              </Text>
-            </Pressable>
-
-            <Pressable onPress={() => {
-              setMode(mode === 'signin' ? 'signup' : 'signin');
-              setError('');
-              setEmail('');
-              setPassword('');
-              setName('');
-            }}
-            disabled={loading}
-            >
-              <Text style={styles.toggleText}>
-                {mode === 'signin'
-                  ? "Don't have an account? Sign Up"
-                  : 'Already have an account? Sign In'}
-              </Text>
-            </Pressable>
 
             <Text style={styles.infoText}>
-              {mode === 'signup'
-                ? 'You will receive a verification email. Check your inbox to confirm.'
-                : 'Sign in with your Convex account credentials.'}
+              {step === 'credentials'
+                ? mode === 'signup'
+                  ? 'A verification code will be sent to your email'
+                  : 'Sign in with your credentials'
+                : 'Check your email for the verification code'}
             </Text>
           </View>
         </View>
@@ -197,6 +269,17 @@ const styles = StyleSheet.create({
     fontSize: fontSize.md,
     borderWidth: 1,
     borderColor: colors.border,
+  },
+  codeInput: {
+    fontSize: fontSize.xl,
+    fontWeight: '600',
+    letterSpacing: 8,
+  },
+  verificationInfo: {
+    color: colors.textMuted,
+    fontSize: fontSize.sm,
+    textAlign: 'center',
+    marginBottom: spacing.md,
   },
   submitBtn: {
     backgroundColor: colors.gold,
