@@ -1,7 +1,6 @@
 import { Password } from "@convex-dev/auth/providers/Password";
 import { convexAuth, getAuthUserId } from "@convex-dev/auth/server";
 import { query } from "./_generated/server";
-import { TestCredentials } from "./testAuth";
 import {
   ViktorSpacesEmail,
   ViktorSpacesPasswordReset,
