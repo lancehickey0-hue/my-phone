@@ -1,4 +1,4 @@
-const { withAndroidManifest, withDangerousMod } = require('@expo/config-plugins');
+const { withAndroidManifest, withDangerousMod, withMainApplication } = require('@expo/config-plugins');
 const fs = require('fs');
 const path = require('path');
 
@@ -28,7 +28,7 @@ function withWakeWordService(config) {
     return config;
   });
 
-  // Copy Kotlin file to android source
+  // Copy Kotlin files to android source
   config = withDangerousMod(config, [
     'android',
     async (config) => {
@@ -39,14 +39,40 @@ function withWakeWordService(config) {
       
       fs.mkdirSync(srcDir, { recursive: true });
       
+      const pluginDir = path.join(config.modRequest.projectRoot, 'plugins/wake-word');
+      
       fs.copyFileSync(
-        path.join(config.modRequest.projectRoot, 'plugins/wake-word/WakeWordService.kt'),
+        path.join(pluginDir, 'WakeWordService.kt'),
         path.join(srcDir, 'WakeWordService.kt')
+      );
+      
+      fs.copyFileSync(
+        path.join(pluginDir, 'WakeWordModule.kt'),
+        path.join(srcDir, 'WakeWordModule.kt')
+      );
+
+      fs.copyFileSync(
+        path.join(pluginDir, 'WakeWordPackage.kt'),
+        path.join(srcDir, 'WakeWordPackage.kt')
       );
 
       return config;
     },
   ]);
+
+  // Register the package in MainApplication
+  config = withMainApplication(config, (config) => {
+    const contents = config.modResults.contents;
+    
+    if (!contents.includes('WakeWordPackage')) {
+      config.modResults.contents = contents.replace(
+        'packages.add(new ReactNativeHostWrapper(this, new DefaultReactNativeHost(this)',
+        'packages.add(new WakeWordPackage());\n        packages.add(new ReactNativeHostWrapper(this, new DefaultReactNativeHost(this)'
+      );
+    }
+    
+    return config;
+  });
 
   return config;
 }
