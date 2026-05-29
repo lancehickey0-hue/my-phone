@@ -1,6 +1,7 @@
 import { Tabs } from 'expo-router';
 import React from 'react';
 import { Image, Text } from 'react-native';
+import { AlarmWatcher } from "../../src/lib/AlarmWatcher";
 import { colors } from '../../src/lib/theme';
 
 function TabIcon({ emoji, focused, isInfinity }: { emoji: string; focused: boolean; isInfinity?: boolean }) {
