@@ -11,7 +11,7 @@ import { api } from '../convex/_generated/api';
 import { colors } from '../src/lib/theme';
 
 const convex = new ConvexReactClient(
-  process.env.EXPO_PUBLIC_CONVEX_URL || 'https://quaint-kingfisher-867.convex.cloud'
+  process.env.EXPO_PUBLIC_CONVEX_URL || 'https://cheery-buffalo-947.convex.cloud'
 );
 
 // On native, use SecureStore for auth token persistence.
