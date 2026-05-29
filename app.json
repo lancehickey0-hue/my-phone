@@ -10,7 +10,7 @@
     "owner": "lannyboi253",
     "newArchEnabled": true,
     "splash": {
-      "image": "./assets/icon.png",
+      "image": "./assets/icon1.png",
       "resizeMode": "contain",
       "backgroundColor": "#06060A"
     },
@@ -28,7 +28,7 @@
     "android": {
       "package": "com.myphone.app",
       "adaptiveIcon": {
-        "foregroundImage": "./assets/icon.png",
+        "foregroundImage": "./assets/icon1.png",
         "backgroundColor": "#06060A"
       },
       "permissions": [
