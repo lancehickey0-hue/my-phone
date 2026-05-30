@@ -89,14 +89,14 @@ export default function LockoutScreen() {
   };
 
   // Handle biometric authentication
-  const handleBiometricAuth = async () => {
+   const handleBiometricAuth = async () => {
     if (isAuthenticating) return;
     setIsAuthenticating(true);
     setAuthError(null);
 
     try {
       // Trigger native biometric prompt
-      const result = await BiometricAuth.authenticateForUnlock(deviceName);
+   const result = await BiometricAuth.authenticateForUnlock(deviceName);
 
       if (result.success) {
         // Success — unlock the device in backend
@@ -238,7 +238,7 @@ export default function LockoutScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: bgDark },
 
   video: {
