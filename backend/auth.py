@@ -47,7 +47,7 @@ def create_access_token(*, sub: str, expires_minutes: int = 60 * 24 * 14, extra:
 
 def decode_token(token: str) -> dict[str, Any]:
     try:
-        return jwt.decode(token, _jwt_secret(), algorithms=[_jwt_alg()])
+    return jwt.decode(token, _jwt_secret(), algorithms=[_jwt_alg()])
     except JWTError as e:
         raise HTTPException(status_code=401, detail="Invalid token") from e
 
