@@ -164,9 +164,7 @@ export default function AuthScreen() {
                 >
                   <Text style={styles.submitText}>
                     {loading ? 'Sending code...' : mode === 'signin' ? 'Sign In' : 'Create Account'}
-                  </Text>
-                </Pressable>
-
+                  <Text>
                 <Pressable onPress={() => {
                   setMode(mode === 'signin' ? 'signup' : 'signin');
                   setError('');
