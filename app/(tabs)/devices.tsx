@@ -25,6 +25,7 @@ export default function DevicesTab() {
   const stopAlarm = useMutation(api.devices.stopAlarm);
   const lockDevice = useMutation(api.devices.lockDevice);
   const unlockDevice = useMutation(api.devices.unlockDevice);
+  const registerPhysicalDevice = useMutation(api.devices.registerPhysicalDevice);
 
   const [showAddModal, setShowAddModal] = useState(false);
   const [newDeviceName, setNewDeviceName] = useState('');
@@ -137,6 +138,27 @@ export default function DevicesTab() {
                 </Pressable>
               )}
 
+              {!(device as any).physicalDeviceId && (
+                <Pressable
+                  style={[styles.actionBtn, styles.actionSetDevice]}
+                  onPress={async () => {
+                    const physicalDeviceId = (globalThis as any).__myPhoneDeviceId;
+                    if (!physicalDeviceId) {
+                      Alert.alert('Error', 'Could not read device ID. Please restart the app.');
+                      return;
+                    }
+                    try {
+                      await registerPhysicalDevice({ deviceId: device._id, physicalDeviceId });
+                      Alert.alert('✅ Done', `This device is now "${device.name}".`);
+                    } catch (e: any) {
+                      Alert.alert('Error', e.message);
+                    }
+                  }}
+                >
+                  <Text style={styles.actionSetDeviceText}>📱 Mine</Text>
+                </Pressable>
+              )}
+
               <Pressable
                 style={[styles.actionBtn, styles.actionMuted]}
                 onPress={() => handleRemoveDevice(device._id, device.name)}
@@ -204,6 +226,9 @@ export default function DevicesTab() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bgPrimary },
   content: { padding: spacing.lg },
+
+  actionSetDevice: { borderColor: colors.goldBorder, backgroundColor: colors.goldDim },
+  actionSetDeviceText: { color: colors.gold, fontWeight: '600', fontSize: fontSize.sm },
 
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.lg },
   headerTitle: { fontSize: fontSize.lg, fontWeight: '700', color: colors.textPrimary },

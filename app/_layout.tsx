@@ -9,6 +9,7 @@ import React, { useEffect, useRef } from 'react';
 import { Platform } from 'react-native';
 import { api } from '../convex/_generated/api';
 import { colors } from '../src/lib/theme';
+import * as Application from 'expo-application';
 
 const convex = new ConvexReactClient(
   process.env.EXPO_PUBLIC_CONVEX_URL || 'https://cheery-buffalo-947.convex.cloud'
@@ -28,6 +29,7 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
   const segments = useSegments();
   const router = useRouter();
   const profileCreated = useRef(false);
+  const deviceRegistered = useRef(false);
 
   useEffect(() => {
     if (isLoading) return;
@@ -48,6 +50,23 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
     if (isAuthenticated && !profileCreated.current) {
       profileCreated.current = true;
       ensureProfile().catch(() => {
+    // Capture this device's hardware ID for "This is my device" registration
+      if (!deviceRegistered.current) {
+        deviceRegistered.current = true;
+        (async () => {
+          try {
+            const physicalDeviceId =
+              Platform.OS === 'android'
+                ? Application.androidId ?? ''
+                : (await Application.getIosIdForVendorAsync()) ?? '';
+            if (typeof globalThis !== 'undefined') {
+              (globalThis as any).__myPhoneDeviceId = physicalDeviceId;
+            }
+          } catch (e) {
+            console.warn('Could not get device ID:', e);
+          }
+        })();
+      }
         // Profile may already exist or will be created on next app open
         profileCreated.current = false;
       });

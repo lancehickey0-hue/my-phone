@@ -33,6 +33,8 @@ const schema = defineSchema({
     batteryLevel: v.optional(v.number()),
     isAlarmActive: v.boolean(),
     isLocked: v.boolean(),
+    expoPushToken: v.optional(v.string()),
+    physicalDeviceId: v.optional(v.string()),
   })
     .index("by_userId", ["userId"])
     .index("by_userId_and_type", ["userId", "type"]),

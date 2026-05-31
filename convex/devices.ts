@@ -40,6 +40,8 @@ const deviceValidator = v.object({
   batteryLevel: v.optional(v.number()),
   isAlarmActive: v.boolean(),
   isLocked: v.boolean(),
+  expoPushToken: v.optional(v.string()),
+  physicalDeviceId: v.optional(v.string()),
 });
 
 // List all devices for the current user
@@ -306,6 +308,28 @@ export const updateLocation = mutation({
       status: "connected",
     });
 
+    return null;
+  },
+});
+
+export const registerPhysicalDevice = mutation({
+  args: {
+    deviceId: v.id("devices"),
+    physicalDeviceId: v.string(),
+    expoPushToken: v.optional(v.string()),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) throw new Error("Not authenticated");
+    const device = await ctx.db.get(args.deviceId);
+    if (!device || device.userId !== userId) throw new Error("Device not found");
+    await ctx.db.patch(args.deviceId, {
+      physicalDeviceId: args.physicalDeviceId,
+      expoPushToken: args.expoPushToken,
+      status: "connected",
+      lastSeenAt: Date.now(),
+    });
     return null;
   },
 });
