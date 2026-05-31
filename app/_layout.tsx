@@ -55,10 +55,24 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
         deviceRegistered.current = true;
         (async () => {
           try {
-            const physicalDeviceId =
-              Platform.OS === 'android'
-                ? Application.androidId ?? ''
-                : (await Application.getIosIdForVendorAsync()) ?? '';
+            let physicalDeviceId = Platform.OS === 'android'
+             ? Application.androidId ?? ''
+             : (await Application.getIosIdForVendorAsync()) ?? '';
+
+            // Fallback: if androidId is null/empty, use a persistent UUID
+            if (!physicalDeviceId) {
+             const stored = await SecureStore.getItemAsync('device_uuid');
+              if (stored) {
+                physicalDeviceId = stored;
+              } else {
+                const uuid = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+                  const r = Math.random() * 16 | 0;
+                  return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+                });
+                await SecureStore.setItemAsync('device_uuid', uuid);
+                physicalDeviceId = uuid;
+              }
+            }
             if (typeof globalThis !== 'undefined') {
               (globalThis as any).__myPhoneDeviceId = physicalDeviceId;
             }
