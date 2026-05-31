@@ -35,26 +35,18 @@ export default function AuthScreen() {
       setError('Please enter your name');
       return;
     }
-
     setLoading(true);
     setError('');
-    
     try {
-      console.log('🔐 Step 1: Submitting credentials...');
-      
-      // This step sends the OTP code to their email
       await signIn('password', {
         email: email.trim(),
         password,
         name: mode === 'signup' ? name.trim() : undefined,
         flow: mode === 'signup' ? 'signUp' : 'signIn',
       });
-      
-      console.log('✅ OTP sent! Moving to verification step');
       setStep('verification');
       setLoading(false);
     } catch (e: any) {
-      console.error('❌ Credentials error:', e);
       const errorMsg = e.message || 'Failed to process credentials. Please try again.';
       setError(errorMsg);
       Alert.alert('Error', errorMsg);
@@ -67,25 +59,16 @@ export default function AuthScreen() {
       setError('Please enter the verification code from your email');
       return;
     }
-
     setLoading(true);
     setError('');
-    
     try {
-      console.log('🔐 Step 2: Submitting verification code...');
-      
-      // Complete the auth with the verification code
-      const result = await signIn('password', {
+      await signIn('password', {
         email: email.trim(),
         password,
         code: verificationCode.trim(),
         flow: mode === 'signup' ? 'signUp' : 'signIn',
       });
-      
-      console.log('✅ Auth successful!');
-      // Navigation handled automatically by _layout.tsx
     } catch (e: any) {
-      console.error('❌ Verification error:', e);
       const errorMsg = e.message || 'Invalid verification code. Please try again.';
       setError(errorMsg);
       Alert.alert('Error', errorMsg);
@@ -105,7 +88,6 @@ export default function AuthScreen() {
         scrollEnabled={true}
       >
         <View style={styles.inner}>
-          {/* Logo */}
           <View style={styles.logoContainer}>
             <Image
               source={require('../assets/images/infinity-logo.png')}
@@ -116,7 +98,6 @@ export default function AuthScreen() {
             <Text style={styles.tagline}>Because phones don't just disappear</Text>
           </View>
 
-          {/* Form */}
           <View style={styles.form}>
             {error ? (
               <View style={styles.errorBox}>
@@ -156,7 +137,6 @@ export default function AuthScreen() {
                   secureTextEntry
                   editable={!loading}
                 />
-
                 <Pressable
                   style={[styles.submitBtn, loading && styles.submitBtnDisabled]}
                   onPress={handleCredentials}
@@ -164,15 +144,17 @@ export default function AuthScreen() {
                 >
                   <Text style={styles.submitText}>
                     {loading ? 'Sending code...' : mode === 'signin' ? 'Sign In' : 'Create Account'}
-                  <Text>
-                <Pressable onPress={() => {
-                  setMode(mode === 'signin' ? 'signup' : 'signin');
-                  setError('');
-                  setEmail('');
-                  setPassword('');
-                  setName('');
-                }}
-                disabled={loading}
+                  </Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => {
+                    setMode(mode === 'signin' ? 'signup' : 'signin');
+                    setError('');
+                    setEmail('');
+                    setPassword('');
+                    setName('');
+                  }}
+                  disabled={loading}
                 >
                   <Text style={styles.toggleText}>
                     {mode === 'signin'
@@ -180,14 +162,12 @@ export default function AuthScreen() {
                       : 'Already have an account? Sign In'}
                   </Text>
                 </Pressable>
-             
-             </>
-           ) : (
+              </>
+            ) : (
               <>
                 <Text style={styles.verificationInfo}>
                   We sent a verification code to {email}. Enter it below to complete your sign in.
                 </Text>
-
                 <TextInput
                   style={[styles.input, styles.codeInput]}
                   placeholder="Enter 6-digit code"
@@ -199,7 +179,6 @@ export default function AuthScreen() {
                   editable={!loading}
                   textAlign="center"
                 />
-
                 <Pressable
                   style={[styles.submitBtn, loading && styles.submitBtnDisabled]}
                   onPress={handleVerification}
@@ -209,17 +188,15 @@ export default function AuthScreen() {
                     {loading ? 'Verifying...' : 'Verify & Sign In'}
                   </Text>
                 </Pressable>
-
-                <Pressable onPress={() => {
-                  setStep('credentials');
-                  setVerificationCode('');
-                  setError('');
-                }}
-                disabled={loading}
+                <Pressable
+                  onPress={() => {
+                    setStep('credentials');
+                    setVerificationCode('');
+                    setError('');
+                  }}
+                  disabled={loading}
                 >
-                  <Text style={styles.toggleText}>
-                    Back to Sign In
-                  </Text>
+                  <Text style={styles.toggleText}>Back to Sign In</Text>
                 </Pressable>
               </>
             )}
@@ -242,12 +219,10 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bgPrimary },
   scrollContainer: { flexGrow: 1, justifyContent: 'center', padding: spacing.xxl },
   inner: { justifyContent: 'center' },
-
   logoContainer: { alignItems: 'center', marginBottom: spacing.xxxl },
   logoImage: { width: 160, height: 80, marginBottom: spacing.md },
   logoText: { fontSize: fontSize.hero, fontWeight: '800', color: colors.gold },
   tagline: { fontSize: fontSize.sm, color: colors.textMuted, marginTop: spacing.sm },
-
   form: { gap: spacing.md },
   errorBox: {
     backgroundColor: '#ff4444',
@@ -255,11 +230,7 @@ const styles = StyleSheet.create({
     borderRadius: borderRadius.md,
     marginBottom: spacing.md,
   },
-  errorText: {
-    color: '#fff',
-    fontSize: fontSize.sm,
-    fontWeight: '600',
-  },
+  errorText: { color: '#fff', fontSize: fontSize.sm, fontWeight: '600' },
   input: {
     backgroundColor: colors.bgCard,
     borderRadius: borderRadius.md,
@@ -269,11 +240,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
   },
-  codeInput: {
-    fontSize: fontSize.xl,
-    fontWeight: '600',
-    letterSpacing: 8,
-  },
+  codeInput: { fontSize: fontSize.xl, fontWeight: '600', letterSpacing: 8 },
   verificationInfo: {
     color: colors.textMuted,
     fontSize: fontSize.sm,
