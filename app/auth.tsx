@@ -1,4 +1,3 @@
-cat > ~/my-phone/app/auth.tsx << 'EOF'
 import { useAuthActions } from '@convex-dev/auth/react';
 import React, { useState } from 'react';
 import {
@@ -231,4 +230,3 @@ const styles = StyleSheet.create({
   toggleText: { color: colors.textSecondary, textAlign: 'center', marginTop: spacing.lg, fontSize: fontSize.sm },
   infoText: { color: colors.textMuted, textAlign: 'center', marginTop: spacing.lg, fontSize: fontSize.sm, fontStyle: 'italic' },
 });
-EOF
