@@ -180,8 +180,9 @@ export default function AuthScreen() {
                       : 'Already have an account? Sign In'}
                   </Text>
                 </Pressable>
-              </>
-            ) : (
+             
+             </>
+           ) : (
               <>
                 <Text style={styles.verificationInfo}>
                   We sent a verification code to {email}. Enter it below to complete your sign in.
