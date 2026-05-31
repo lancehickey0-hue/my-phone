@@ -1,3 +1,4 @@
+cat > ~/my-phone/app/auth.tsx << 'EOF'
 import { useAuthActions } from '@convex-dev/auth/react';
 import React, { useState } from 'react';
 import {
@@ -16,7 +17,6 @@ import { borderRadius, colors, fontSize, spacing } from '../src/lib/theme';
 
 export default function AuthScreen() {
   const { signIn } = useAuthActions();
-
   const [mode, setMode] = useState<'signin' | 'signup'>('signin');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -66,7 +66,6 @@ export default function AuthScreen() {
         email: email.trim(),
         password,
         code: verificationCode.trim(),
-        flow: mode === 'signup' ? 'signUp' : 'signIn',
       });
     } catch (e: any) {
       const errorMsg = e.message || 'Invalid verification code. Please try again.';
@@ -97,14 +96,12 @@ export default function AuthScreen() {
             <Text style={styles.logoText}>My-Phone</Text>
             <Text style={styles.tagline}>Because phones don't just disappear</Text>
           </View>
-
           <View style={styles.form}>
             {error ? (
               <View style={styles.errorBox}>
                 <Text style={styles.errorText}>{error}</Text>
               </View>
             ) : null}
-
             {step === 'credentials' ? (
               <>
                 {mode === 'signup' && (
@@ -200,7 +197,6 @@ export default function AuthScreen() {
                 </Pressable>
               </>
             )}
-
             <Text style={styles.infoText}>
               {step === 'credentials'
                 ? mode === 'signup'
@@ -224,38 +220,15 @@ const styles = StyleSheet.create({
   logoText: { fontSize: fontSize.hero, fontWeight: '800', color: colors.gold },
   tagline: { fontSize: fontSize.sm, color: colors.textMuted, marginTop: spacing.sm },
   form: { gap: spacing.md },
-  errorBox: {
-    backgroundColor: '#ff4444',
-    padding: spacing.md,
-    borderRadius: borderRadius.md,
-    marginBottom: spacing.md,
-  },
+  errorBox: { backgroundColor: '#ff4444', padding: spacing.md, borderRadius: borderRadius.md, marginBottom: spacing.md },
   errorText: { color: '#fff', fontSize: fontSize.sm, fontWeight: '600' },
-  input: {
-    backgroundColor: colors.bgCard,
-    borderRadius: borderRadius.md,
-    padding: spacing.lg,
-    color: colors.textPrimary,
-    fontSize: fontSize.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
+  input: { backgroundColor: colors.bgCard, borderRadius: borderRadius.md, padding: spacing.lg, color: colors.textPrimary, fontSize: fontSize.md, borderWidth: 1, borderColor: colors.border },
   codeInput: { fontSize: fontSize.xl, fontWeight: '600', letterSpacing: 8 },
-  verificationInfo: {
-    color: colors.textMuted,
-    fontSize: fontSize.sm,
-    textAlign: 'center',
-    marginBottom: spacing.md,
-  },
-  submitBtn: {
-    backgroundColor: colors.gold,
-    borderRadius: borderRadius.md,
-    padding: spacing.lg,
-    alignItems: 'center',
-    marginTop: spacing.sm,
-  },
+  verificationInfo: { color: colors.textMuted, fontSize: fontSize.sm, textAlign: 'center', marginBottom: spacing.md },
+  submitBtn: { backgroundColor: colors.gold, borderRadius: borderRadius.md, padding: spacing.lg, alignItems: 'center', marginTop: spacing.sm },
   submitBtnDisabled: { opacity: 0.5 },
   submitText: { color: colors.bgPrimary, fontWeight: '700', fontSize: fontSize.lg },
   toggleText: { color: colors.textSecondary, textAlign: 'center', marginTop: spacing.lg, fontSize: fontSize.sm },
   infoText: { color: colors.textMuted, textAlign: 'center', marginTop: spacing.lg, fontSize: fontSize.sm, fontStyle: 'italic' },
 });
+EOF
