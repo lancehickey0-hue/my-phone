@@ -101,14 +101,20 @@ class WakeWordService : Service() {
     }
 
     private fun sendWakeWordBroadcast() {
+        // Send local broadcast
         val intent = Intent("com.myphone.app.WAKE_WORD_DETECTED")
         sendBroadcast(intent)
-    }
 
-    override fun onDestroy() {
-        speechRecognizer?.destroy()
-        super.onDestroy()
-    }
+        // Also emit to React Native via DeviceEventEmitter
+        try {
+            val reactContext = (application as? com.facebook.react.ReactApplication)
+                ?.reactNativeHost
+                ?.reactInstanceManager
+                ?.currentReactContext
 
-    override fun onBind(intent: Intent?): IBinder? = null
-}
+            reactContext?.getJSModule(com.facebook.react.modules.core.DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
+                ?.emit("WakeWordDetected", "detected")
+        } catch (e: Exception) {
+            android.util.Log.e("WakeWord", "Could not emit to RN: ${e.message}")
+        }
+    }

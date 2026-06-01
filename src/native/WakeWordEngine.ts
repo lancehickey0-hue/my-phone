@@ -294,18 +294,35 @@ export class WakeWordEngine extends EventEmitter {
   async start(): Promise<void> {
     if (this.isRunning) return;
 
-    // In production:
-    //   iOS: Start AVAudioEngine with tap on input node
-    //   Android: Start AudioRecord in a foreground service
-    //   Both: Register for background execution (significant location / audio session)
+    // Start the native Android foreground service
+    try {
+      const { NativeModules } = require('react-native');
+      if (NativeModules.WakeWordModule) {
+        NativeModules.WakeWordModule.startService();
+      }
+    } catch (e) {
+      console.warn('[WakeWordEngine] Could not start native service:', e);
+    }
 
     this.isRunning = true;
     this.isListening = true;
     this.emit('listening_start');
 
-    // Simulate audio level updates
+// Listen for native wake word detections
+  try {
+    const { DeviceEventEmitter } = require('react-native');
+    DeviceEventEmitter.addListener('WakeWordDetected', () => {
+      const activeDevices = Array.from(this.spotters.keys());
+      if (activeDevices.length > 0) {
+        this.simulateDetection(activeDevices[0]);
+      }
+    });
+  } catch (e) {
+    console.warn('[WakeWordEngine] Could not add native listener:', e);
+  }
+
     this.audioLevelInterval = setInterval(() => {
-      this.currentAudioLevel = Math.random() * 0.3; // ambient noise
+      this.currentAudioLevel = Math.random() * 0.3;
       this.emit('audio_level', this.currentAudioLevel);
     }, 100);
   }
@@ -315,6 +332,15 @@ export class WakeWordEngine extends EventEmitter {
    */
   async stop(): Promise<void> {
     if (!this.isRunning) return;
+
+    try {
+      const { NativeModules } = require('react-native');
+      if (NativeModules.WakeWordModule) {
+        NativeModules.WakeWordModule.stopService();
+      }
+    } catch (e) {
+      console.warn('[WakeWordEngine] Could not stop native service:', e);
+    }
 
     this.isRunning = false;
     this.isListening = false;

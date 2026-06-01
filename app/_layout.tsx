@@ -53,6 +53,13 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
     // Capture this device's hardware ID for "This is my device" registration
       if (!deviceRegistered.current) {
         deviceRegistered.current = true;
+    // Auto-start wake word background service
+          try {
+            const { getBackgroundService } = require('../src/native/BackgroundService');
+            getBackgroundService().start();
+          } catch (e) {
+            console.warn('Could not start background service:', e);
+          }
         (async () => {
           try {
             let physicalDeviceId = Platform.OS === 'android'
