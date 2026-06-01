@@ -101,11 +101,9 @@ class WakeWordService : Service() {
     }
 
     private fun sendWakeWordBroadcast() {
-        // Send local broadcast
         val intent = Intent("com.myphone.app.WAKE_WORD_DETECTED")
         sendBroadcast(intent)
 
-        // Also emit to React Native via DeviceEventEmitter
         try {
             val reactContext = (application as? com.facebook.react.ReactApplication)
                 ?.reactNativeHost
