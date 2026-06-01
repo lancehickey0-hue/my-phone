@@ -14,6 +14,8 @@ import { api } from '../../convex/_generated/api';
 import { type Id } from '../../convex/_generated/dataModel';
 import { deviceEmojis, deviceLabels, type DeviceType } from '../../src/lib/deviceIcons';
 import { borderRadius, colors, fontSize, spacing } from '../../src/lib/theme';
+import * as Application from 'expo-application';
+import * as SecureStore from 'expo-secure-store';
 
 const DEVICE_TYPES: DeviceType[] = ['phone', 'tablet', 'laptop', 'earbuds', 'watch'];
 
@@ -142,12 +144,21 @@ export default function DevicesTab() {
                 <Pressable
                   style={[styles.actionBtn, styles.actionSetDevice]}
                   onPress={async () => {
-                    const physicalDeviceId = (globalThis as any).__myPhoneDeviceId;
-                    if (!physicalDeviceId) {
-                      Alert.alert('Error', 'Could not read device ID. Please restart the app.');
-                      return;
-                    }
                     try {
+                      let physicalDeviceId = Application.androidId ?? '';
+                      if (!physicalDeviceId) {
+                        const stored = await SecureStore.getItemAsync('device_uuid');
+                        if (stored) {
+                          physicalDeviceId = stored;
+                        } else {
+                          const uuid = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+                            const r = Math.random() * 16 | 0;
+                            return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+                          });
+                          await SecureStore.setItemAsync('device_uuid', uuid);
+                          physicalDeviceId = uuid;
+                        }
+                      }
                       await registerPhysicalDevice({ deviceId: device._id, physicalDeviceId });
                       Alert.alert('✅ Done', `This device is now "${device.name}".`);
                     } catch (e: any) {
