@@ -25,23 +25,69 @@ export function isNativeSpeechRecognitionAvailable() {
 }
 
 export async function requestSpeechRecognitionPermissionsAsync(): Promise<SpeechPermissionResponse> {
-  if (!NativeSpeechModule?.requestPermissionsAsync) return { granted: false };
-  return (await NativeSpeechModule.requestPermissionsAsync()) as SpeechPermissionResponse;
+  if (!NativeSpeechModule?.requestPermissionsAsync) {
+    return { 
+      granted: false, 
+      status: 'unavailable',
+      restricted: true
+    };
+  }
+  
+  try {
+    return (await NativeSpeechModule.requestPermissionsAsync()) as SpeechPermissionResponse;
+  } catch (error) {
+    console.error('[SpeechRecognition] Permission request failed:', error);
+    return { 
+      granted: false,
+      status: 'error',
+      restricted: true
+    };
+  }
 }
 
 export function startSpeechRecognition(options: SpeechStartOptions) {
-  if (!NativeSpeechModule?.start) throw new Error('Speech recognition module not available');
-  NativeSpeechModule.start(options);
+  if (!NativeSpeechModule) {
+    throw new Error('Speech recognition module not available (requires dev build)');
+  }
+  
+  if (typeof NativeSpeechModule.start !== 'function') {
+    throw new Error('Speech recognition start method not available');
+  }
+  
+  try {
+    NativeSpeechModule.start(options);
+  } catch (error) {
+    console.error('[SpeechRecognition] Failed to start recognition:', error);
+    throw new Error(`Speech recognition failed to start: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  }
 }
 
 export function stopSpeechRecognition() {
-  if (!NativeSpeechModule?.stop) return;
-  NativeSpeechModule.stop();
+  if (!NativeSpeechModule?.stop) {
+    console.warn('[SpeechRecognition] Stop method not available');
+    return;
+  }
+  
+  try {
+    NativeSpeechModule.stop();
+  } catch (error) {
+    console.error('[SpeechRecognition] Failed to stop recognition:', error);
+  }
 }
 
 export function addSpeechListener(eventName: string, listener: (event: any) => void) {
   const addListener = NativeSpeechModule?.addListener;
-  if (typeof addListener !== 'function') return null;
-  const sub = addListener.call(NativeSpeechModule, eventName, listener);
-  return sub;
+  
+  if (typeof addListener !== 'function') {
+    console.warn('[SpeechRecognition] Listener registration not available');
+    return null;
+  }
+  
+  try {
+    const sub = addListener.call(NativeSpeechModule, eventName, listener);
+    return sub;
+  } catch (error) {
+    console.error(`[SpeechRecognition] Failed to add ${eventName} listener:`, error);
+    return null;
+  }
 }

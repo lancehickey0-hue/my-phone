@@ -2,6 +2,7 @@ import { Audio } from 'expo-av';
 
 let soundObject: Audio.Sound | null = null;
 let isPlaying = false;
+let isStoppingAlarm = false; // Prevent concurrent stop operations
 
 export async function startAlarm() {
   if (isPlaying) return;
@@ -18,26 +19,67 @@ export async function startAlarm() {
       { shouldPlay: true, isLooping: true, volume: 1.0 }
     );
 
-    soundObject = sound;
-    isPlaying = true;
+    // Double-check soundObject is still null (wasn't set concurrently)
+    if (soundObject === null) {
+      soundObject = sound;
+      isPlaying = true;
+    } else {
+      // Race condition: another call set soundObject, unload this one
+      try {
+        await sound.unloadAsync();
+      } catch (e) {
+        console.warn('[AlarmManager] Failed to cleanup duplicate sound:', e);
+      }
+    }
   } catch (e) {
-    console.error('Failed to play alarm:', e);
+    console.error('[AlarmManager] Failed to play alarm:', e);
+    isPlaying = false;
+    soundObject = null;
   }
 }
 
 export async function stopAlarm() {
-  if (!soundObject) return;
+  // Prevent concurrent stop operations
+  if (isStoppingAlarm || !soundObject) return;
+  
+  isStoppingAlarm = true;
   
   try {
-    await soundObject.stopAsync();
-    await soundObject.unloadAsync();
+    const currentSound = soundObject;
+    
+    // Clear references immediately to prevent concurrent operations
     soundObject = null;
     isPlaying = false;
+
+    if (currentSound) {
+      await currentSound.stopAsync();
+      await currentSound.unloadAsync();
+    }
   } catch (e) {
-    console.error('Failed to stop alarm:', e);
+    console.error('[AlarmManager] Failed to stop alarm:', e);
+  } finally {
+    isStoppingAlarm = false;
   }
 }
 
 export function isAlarmPlaying() {
-  return isPlaying;
+  return isPlaying && soundObject !== null;
+}
+
+/**
+ * Emergency cleanup - call this on app pause/background
+ */
+export async function emergencyStopAlarm() {
+  try {
+    if (soundObject) {
+      await soundObject.stopAsync();
+      await soundObject.unloadAsync();
+    }
+  } catch (e) {
+    console.warn('[AlarmManager] Emergency stop failed:', e);
+  } finally {
+    soundObject = null;
+    isPlaying = false;
+    isStoppingAlarm = false;
+  }
 }

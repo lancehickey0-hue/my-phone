@@ -49,50 +49,79 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
     // This runs AFTER the auth token is propagated, avoiding the race condition.
     if (isAuthenticated && !profileCreated.current) {
       profileCreated.current = true;
-      ensureProfile().catch(() => {
-    // Capture this device's hardware ID for "This is my device" registration
-      if (!deviceRegistered.current) {
-        deviceRegistered.current = true;
-    // Auto-start wake word background service
-          try {
-            const { getBackgroundService } = require('../src/native/BackgroundService');
-            getBackgroundService().start();
-          } catch (e) {
-            console.warn('Could not start background service:', e);
+      ensureProfile()
+        .then(async () => {
+          // Profile created successfully, proceed with device registration
+          if (!deviceRegistered.current) {
+            deviceRegistered.current = true;
+            await initializeDevice();
           }
-        (async () => {
-          try {
-            let physicalDeviceId = Platform.OS === 'android'
-             ? Application.androidId ?? ''
-             : (await Application.getIosIdForVendorAsync()) ?? '';
-
-            // Fallback: if androidId is null/empty, use a persistent UUID
-            if (!physicalDeviceId) {
-             const stored = await SecureStore.getItemAsync('device_uuid');
-              if (stored) {
-                physicalDeviceId = stored;
-              } else {
-                const uuid = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
-                  const r = Math.random() * 16 | 0;
-                  return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
-                });
-                await SecureStore.setItemAsync('device_uuid', uuid);
-                physicalDeviceId = uuid;
-              }
-            }
-            if (typeof globalThis !== 'undefined') {
-              (globalThis as any).__myPhoneDeviceId = physicalDeviceId;
-            }
-          } catch (e) {
-            console.warn('Could not get device ID:', e);
+        })
+        .catch((error: any) => {
+          // Log error but don't crash - profile may already exist
+          console.warn('[AuthGuard] Profile creation error:', error?.message || 'Unknown error');
+          
+          // Still try to register device even if profile creation fails
+          if (!deviceRegistered.current) {
+            deviceRegistered.current = true;
+            initializeDevice().catch((e) => {
+              console.error('[AuthGuard] Device initialization failed:', e);
+            });
           }
-        })();
-      }
-        // Profile may already exist or will be created on next app open
-        profileCreated.current = false;
-      });
+          
+          // Reset flag to allow retry on next auth check
+          profileCreated.current = false;
+        });
     }
-  }, [isAuthenticated, isLoading, segments]);
+  }, [isAuthenticated, isLoading, segments, ensureProfile]);
+
+  /**
+   * Initialize device: start background service and capture hardware ID
+   */
+  async function initializeDevice() {
+    try {
+      // Auto-start wake word background service
+      try {
+        const { getBackgroundService } = require('../src/native/BackgroundService');
+        const service = getBackgroundService();
+        if (service && typeof service.start === 'function') {
+          await service.start();
+        }
+      } catch (e) {
+        console.warn('[AuthGuard] Could not start background service:', e);
+      }
+
+      // Capture this device's hardware ID for "This is my device" registration
+      try {
+        let physicalDeviceId = Platform.OS === 'android'
+          ? Application.androidId ?? ''
+          : (await Application.getIosIdForVendorAsync()) ?? '';
+
+        // Fallback: if androidId is null/empty, use a persistent UUID
+        if (!physicalDeviceId) {
+          const stored = await SecureStore.getItemAsync('device_uuid');
+          if (stored) {
+            physicalDeviceId = stored;
+          } else {
+            const uuid = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+              const r = Math.random() * 16 | 0;
+              return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+            });
+            await SecureStore.setItemAsync('device_uuid', uuid);
+            physicalDeviceId = uuid;
+          }
+        }
+        
+        if (typeof globalThis !== 'undefined' && physicalDeviceId) {
+          (globalThis as any).__myPhoneDeviceId = physicalDeviceId;
+        }
+      } catch (e) {
+        console.warn('[AuthGuard] Could not initialize device ID:', e);
+      }
+    } catch (e) {
+      console.error('[AuthGuard] Device initialization failed:', e);
+    }
+  }
 
   return <>{children}</>;
 }
