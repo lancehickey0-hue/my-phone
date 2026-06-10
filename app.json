@@ -8,7 +8,7 @@
     "scheme": "myphone",
     "userInterfaceStyle": "dark",
     "owner": "lannyboi253",
-    "newArchEnabled": true,
+    "newArchEnabled": false,
     "splash": {
       "image": "./assets/icon1.png",
       "resizeMode": "contain",
