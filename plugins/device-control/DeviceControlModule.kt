@@ -1,6 +1,5 @@
 package com.myphone.app
 
-import android.app.KeyguardManager
 import android.app.admin.DevicePolicyManager
 import android.content.ComponentName
 import android.content.Context
@@ -11,12 +10,24 @@ import androidx.biometric.BiometricPrompt
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
 import com.facebook.react.bridge.*
+import com.facebook.react.module.annotations.ReactModule
 import com.facebook.react.modules.core.DeviceEventManagerModule
 
+@ReactModule(name = DeviceControlModule.NAME)
 class DeviceControlModule(private val reactContext: ReactApplicationContext) :
     ReactContextBaseJavaModule(reactContext) {
 
-    override fun getName() = "DeviceControlModule"
+    companion object {
+        const val NAME = "DeviceControlModule"
+    }
+
+    override fun getName() = NAME
+
+    @ReactMethod
+    fun addListener(eventName: String) {}
+
+    @ReactMethod
+    fun removeListeners(count: Int) {}
 
     @ReactMethod
     fun lockScreen(promise: Promise) {
@@ -34,10 +45,10 @@ class DeviceControlModule(private val reactContext: ReactApplicationContext) :
                     flags = Intent.FLAG_ACTIVITY_NEW_TASK
                 }
                 reactContext.startActivity(intent)
-                promise.reject("ADMIN_REQUIRED", "Device admin permission required to lock screen")
+                promise.reject("ADMIN_REQUIRED", "Device admin permission required")
             }
         } catch (e: Exception) {
-            promise.reject("LOCK_ERROR", e.message)
+            promise.reject("LOCK_ERROR", e.message ?: "Unknown error")
         }
     }
 
@@ -51,20 +62,22 @@ class DeviceControlModule(private val reactContext: ReactApplicationContext) :
         activity.runOnUiThread {
             try {
                 val biometricManager = BiometricManager.from(reactContext)
-                val canAuthenticate = biometricManager.canAuthenticate(
+                val canAuth = biometricManager.canAuthenticate(
                     BiometricManager.Authenticators.BIOMETRIC_STRONG or
                     BiometricManager.Authenticators.DEVICE_CREDENTIAL
                 )
-                if (canAuthenticate != BiometricManager.BIOMETRIC_SUCCESS) {
+                if (canAuth != BiometricManager.BIOMETRIC_SUCCESS) {
                     lockScreen(promise)
                     return@runOnUiThread
                 }
                 val executor = ContextCompat.getMainExecutor(reactContext)
                 val callback = object : BiometricPrompt.AuthenticationCallback() {
                     override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
-                        reactContext
-                            .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
-                            .emit("BiometricUnlockSuccess", null)
+                        try {
+                            reactContext
+                                .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
+                                .emit("BiometricUnlockSuccess", null)
+                        } catch (e: Exception) { e.printStackTrace() }
                         promise.resolve(true)
                     }
                     override fun onAuthenticationFailed() {}
@@ -90,15 +103,19 @@ class DeviceControlModule(private val reactContext: ReactApplicationContext) :
                 }
                 prompt.authenticate(promptInfo)
             } catch (e: Exception) {
-                promise.reject("BIOMETRIC_ERROR", e.message)
+                promise.reject("BIOMETRIC_ERROR", e.message ?: "Unknown error")
             }
         }
     }
 
     @ReactMethod
     fun isDeviceAdminActive(promise: Promise) {
-        val dpm = reactContext.getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
-        val adminComponent = ComponentName(reactContext, MyPhoneDeviceAdminReceiver::class.java)
-        promise.resolve(dpm.isAdminActive(adminComponent))
+        try {
+            val dpm = reactContext.getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
+            val adminComponent = ComponentName(reactContext, MyPhoneDeviceAdminReceiver::class.java)
+            promise.resolve(dpm.isAdminActive(adminComponent))
+        } catch (e: Exception) {
+            promise.resolve(false)
+        }
     }
 }

@@ -7,9 +7,9 @@ import android.util.Log
 
 class MyPhoneDeviceAdminReceiver : DeviceAdminReceiver() {
     override fun onEnabled(context: Context, intent: Intent) {
-        Log.d("DeviceAdmin", "Device admin enabled")
+        Log.d("MyPhoneAdmin", "Device admin enabled")
     }
     override fun onDisabled(context: Context, intent: Intent) {
-        Log.d("DeviceAdmin", "Device admin disabled")
+        Log.d("MyPhoneAdmin", "Device admin disabled")
     }
 }
