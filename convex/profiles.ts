@@ -192,3 +192,5 @@ export const getActivityLog = query({
     return logs;
   },
 });
+
+// ONE-TIME: Fix owner account — run once then delete
