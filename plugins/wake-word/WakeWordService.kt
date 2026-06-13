@@ -116,3 +116,12 @@ class WakeWordService : Service() {
             android.util.Log.e("WakeWord", "Could not emit to RN: ${e.message}")
         }
     }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        speechRecognizer?.destroy()
+        speechRecognizer = null
+    }
+
+    override fun onBind(intent: Intent?): IBinder? = null
+}
