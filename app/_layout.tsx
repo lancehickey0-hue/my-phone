@@ -1,4 +1,4 @@
-import 'react-native-get-random-values'; // Must be first — Convex needs crypto.getRandomValues()
+import 'react-native-get-random-values';
 import { ConvexAuthProvider } from '@convex-dev/auth/react';
 import { useConvexAuth, useMutation } from 'convex/react';
 import { ConvexReactClient } from 'convex/react';
@@ -6,7 +6,7 @@ import * as SecureStore from 'expo-secure-store';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React, { useEffect, useRef } from 'react';
-import { Platform } from 'react-native';
+import { Platform, NativeModules, NativeEventEmitter } from 'react-native';
 import { api } from '../convex/_generated/api';
 import { colors } from '../src/lib/theme';
 import * as Application from 'expo-application';
@@ -15,8 +15,6 @@ const convex = new ConvexReactClient(
   process.env.EXPO_PUBLIC_CONVEX_URL || 'https://cheery-buffalo-947.convex.cloud'
 );
 
-// On native, use SecureStore for auth token persistence.
-// On web, ConvexAuthProvider defaults to localStorage automatically.
 const nativeStorage = Platform.OS !== 'web' ? {
   getItem: SecureStore.getItemAsync,
   setItem: SecureStore.setItemAsync,
@@ -31,44 +29,60 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
   const profileCreated = useRef(false);
   const deviceRegistered = useRef(false);
 
+  // ── Wake word listener ────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!isAuthenticated) return;
+
+    const { WakeWordModule } = NativeModules;
+    if (!WakeWordModule) return;
+
+    const emitter = new NativeEventEmitter(WakeWordModule);
+    const sub = emitter.addListener('WakeWordDetected', () => {
+      console.log('Wake word detected - navigating to lockout');
+      router.push('/lockout');
+    });
+
+    // Start the wake word service
+    try {
+      WakeWordModule.startService();
+    } catch (e) {
+      console.warn('Could not start WakeWordService:', e);
+    }
+
+    return () => sub.remove();
+  }, [isAuthenticated]);
+
+  // ── Auth routing ──────────────────────────────────────────────────────────
   useEffect(() => {
     if (isLoading) return;
 
     const inAuthScreen = segments[0] === 'auth';
 
     if (!isAuthenticated && !inAuthScreen) {
-      // Not logged in and not on auth screen → redirect to login
       profileCreated.current = false;
       router.replace('/auth');
     } else if (isAuthenticated && inAuthScreen) {
-      // Logged in but still on auth screen → go to dashboard
       router.replace('/(tabs)');
     }
 
-    // Create profile once auth is confirmed by the Convex client.
-    // This runs AFTER the auth token is propagated, avoiding the race condition.
     if (isAuthenticated && !profileCreated.current) {
       profileCreated.current = true;
+
       ensureProfile().catch(() => {
-    // Capture this device's hardware ID for "This is my device" registration
+        profileCreated.current = false;
+      });
+
+      // Register device ID
       if (!deviceRegistered.current) {
         deviceRegistered.current = true;
-    // Auto-start wake word background service
-          try {
-            const { getBackgroundService } = require('../src/native/BackgroundService');
-            getBackgroundService().start();
-          } catch (e) {
-            console.warn('Could not start background service:', e);
-          }
         (async () => {
           try {
             let physicalDeviceId = Platform.OS === 'android'
-             ? Application.androidId ?? ''
-             : (await Application.getIosIdForVendorAsync()) ?? '';
+              ? Application.androidId ?? ''
+              : (await Application.getIosIdForVendorAsync()) ?? '';
 
-            // Fallback: if androidId is null/empty, use a persistent UUID
             if (!physicalDeviceId) {
-             const stored = await SecureStore.getItemAsync('device_uuid');
+              const stored = await SecureStore.getItemAsync('device_uuid');
               if (stored) {
                 physicalDeviceId = stored;
               } else {
@@ -88,9 +102,6 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
           }
         })();
       }
-        // Profile may already exist or will be created on next app open
-        profileCreated.current = false;
-      });
     }
   }, [isAuthenticated, isLoading, segments]);
 
@@ -111,20 +122,9 @@ export default function RootLayout() {
         >
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
           <Stack.Screen name="auth" options={{ headerShown: false }} />
-          <Stack.Screen
-            name="voice-setup"
-            options={{
-              headerShown: false,
-              presentation: 'modal',
-            }}
-          />
-          <Stack.Screen
-            name="biometric-setup"
-            options={{
-              headerShown: false,
-              presentation: 'modal',
-            }}
-          />
+          <Stack.Screen name="lockout" options={{ headerShown: false, presentation: 'fullScreenModal' }} />
+          <Stack.Screen name="voice-setup" options={{ headerShown: false, presentation: 'modal' }} />
+          <Stack.Screen name="biometric-setup" options={{ headerShown: false, presentation: 'modal' }} />
         </Stack>
       </AuthGuard>
     </ConvexAuthProvider>

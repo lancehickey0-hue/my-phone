@@ -1,26 +1,12 @@
-/**
- * BiometricAuth — Native biometric authentication module
- *
- * Wraps expo-local-authentication for Face ID / Touch ID / Fingerprint.
- * Used for:
- *   1. Lockout screen unlock (after alarm triggered)
- *   2. App login (optional biometric login)
- *   3. Sensitive actions (e.g., removing a device, changing settings)
- *
- * Platform support:
- *   iOS: Face ID (iPhone X+), Touch ID (iPhone 5s–8)
- *   Android: Fingerprint, Face recognition, Iris (device dependent)
- */
-
-// ─── Types ──────────────────────────────────────────────────────────────────
+import * as LocalAuthentication from 'expo-local-authentication';
 
 export type BiometricType = 'face_id' | 'touch_id' | 'fingerprint' | 'iris' | 'none';
 
 export interface BiometricCapability {
   isAvailable: boolean;
   biometricType: BiometricType;
-  isEnrolled: boolean; // User has set up biometrics on the device
-  securityLevel: 'strong' | 'weak' | 'none'; // Android security classification
+  isEnrolled: boolean;
+  securityLevel: 'strong' | 'weak' | 'none';
 }
 
 export interface AuthResult {
@@ -29,38 +15,33 @@ export interface AuthResult {
   errorCode?: 'user_cancel' | 'lockout' | 'not_enrolled' | 'not_available' | 'system_error';
 }
 
-// ─── Biometric Auth ─────────────────────────────────────────────────────────
-
 export class BiometricAuth {
-  /**
-   * Check what biometric capabilities the device supports.
-   */
   static async getCapabilities(): Promise<BiometricCapability> {
-    // In production: use expo-local-authentication
-    // import * as LocalAuthentication from 'expo-local-authentication';
-    //
-    // const hasHardware = await LocalAuthentication.hasHardwareAsync();
-    // const isEnrolled = await LocalAuthentication.isEnrolledAsync();
-    // const types = await LocalAuthentication.supportedAuthenticationTypesAsync();
-    //
-    // Map types:
-    //   LocalAuthentication.AuthenticationType.FACIAL_RECOGNITION → 'face_id'
-    //   LocalAuthentication.AuthenticationType.FINGERPRINT → 'fingerprint' / 'touch_id'
-    //   LocalAuthentication.AuthenticationType.IRIS → 'iris'
+    const hasHardware = await LocalAuthentication.hasHardwareAsync();
+    const isEnrolled = await LocalAuthentication.isEnrolledAsync();
+    const types = await LocalAuthentication.supportedAuthenticationTypesAsync();
 
-    // Simulated
+    let biometricType: BiometricType = 'none';
+    if (types.includes(LocalAuthentication.AuthenticationType.FACIAL_RECOGNITION)) {
+      biometricType = 'face_id';
+    } else if (types.includes(LocalAuthentication.AuthenticationType.FINGERPRINT)) {
+      biometricType = 'fingerprint';
+    }
+
+    const level = await LocalAuthentication.getEnrolledLevelAsync();
+
     return {
-      isAvailable: true,
-      biometricType: 'face_id',
-      isEnrolled: true,
-      securityLevel: 'strong',
+      isAvailable: hasHardware,
+      biometricType,
+      isEnrolled,
+      securityLevel: level === LocalAuthentication.SecurityLevel.BIOMETRIC_STRONG
+        ? 'strong'
+        : level === LocalAuthentication.SecurityLevel.BIOMETRIC_WEAK
+          ? 'weak'
+          : 'none',
     };
   }
 
-  /**
-   * Authenticate the user with biometrics.
-   * Shows the native biometric prompt.
-   */
   static async authenticate(options?: {
     promptMessage?: string;
     cancelLabel?: string;
@@ -74,40 +55,41 @@ export class BiometricAuth {
       disableDeviceFallback = false,
     } = options ?? {};
 
-    // In production:
-    // const result = await LocalAuthentication.authenticateAsync({
-    //   promptMessage,
-    //   cancelLabel,
-    //   fallbackLabel,
-    //   disableDeviceFallback,
-    // });
-    //
-    // return {
-    //   success: result.success,
-    //   error: result.error,
-    //   errorCode: mapErrorCode(result.error),
-    // };
+    try {
+      const hasHardware = await LocalAuthentication.hasHardwareAsync();
+      const isEnrolled = await LocalAuthentication.isEnrolledAsync();
 
-    // Simulated: always succeed after brief delay
-    await new Promise((r) => setTimeout(r, 800));
-    return { success: true };
+      if (!hasHardware) return { success: false, error: 'No biometric hardware available', errorCode: 'not_available' };
+      if (!isEnrolled) return { success: false, error: 'No biometrics enrolled', errorCode: 'not_enrolled' };
+
+      const result = await LocalAuthentication.authenticateAsync({
+        promptMessage,
+        cancelLabel,
+        fallbackLabel,
+        disableDeviceFallback,
+      });
+
+      if (result.success) return { success: true };
+
+      const error = (result as any).error as string;
+      let errorCode: AuthResult['errorCode'] = 'system_error';
+      if (error === 'user_cancel' || error === 'SystemCancel') errorCode = 'user_cancel';
+      else if (error === 'lockout' || error === 'lockout_permanent') errorCode = 'lockout';
+
+      return { success: false, error, errorCode };
+    } catch (e: any) {
+      return { success: false, error: e.message, errorCode: 'system_error' };
+    }
   }
 
-  /**
-   * Authenticate specifically for lockout unlock.
-   * Uses a more urgent prompt and doesn't allow fallback to passcode.
-   */
   static async authenticateForUnlock(deviceName: string): Promise<AuthResult> {
     return this.authenticate({
       promptMessage: `Unlock ${deviceName}`,
       cancelLabel: 'Cancel',
-      disableDeviceFallback: true, // Must use biometrics, no passcode fallback
+      disableDeviceFallback: false,
     });
   }
 
-  /**
-   * Get a user-friendly label for the biometric type.
-   */
   static getBiometricLabel(type: BiometricType): string {
     switch (type) {
       case 'face_id': return 'Face ID';
@@ -118,9 +100,6 @@ export class BiometricAuth {
     }
   }
 
-  /**
-   * Get the icon/emoji for the biometric type.
-   */
   static getBiometricIcon(type: BiometricType): string {
     switch (type) {
       case 'face_id': return '👤';
