@@ -62,7 +62,7 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
       profileCreated.current = false;
       router.replace('/auth');
     } else if (isAuthenticated && inAuthScreen) {
-      router.replace('/(tabs)');
+      router.replace('/wake-word-setup');
     }
 
     if (isAuthenticated && !profileCreated.current) {
@@ -125,6 +125,7 @@ export default function RootLayout() {
           <Stack.Screen name="lockout" options={{ headerShown: false, presentation: 'fullScreenModal' }} />
           <Stack.Screen name="voice-setup" options={{ headerShown: false, presentation: 'modal' }} />
           <Stack.Screen name="biometric-setup" options={{ headerShown: false, presentation: 'modal' }} />
+          <Stack.Screen name="wake-word-setup" options={{ headerShown: false }} />
         </Stack>
       </AuthGuard>
     </ConvexAuthProvider>
