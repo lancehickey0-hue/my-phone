@@ -28,11 +28,11 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const profileCreated = useRef(false);
   const deviceRegistered = useRef(false);
+  const modelChecked = useRef(false);
 
   // ── Wake word listener ────────────────────────────────────────────────────
   useEffect(() => {
     if (!isAuthenticated) return;
-
     const { WakeWordModule } = NativeModules;
     if (!WakeWordModule) return;
 
@@ -42,7 +42,6 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
       router.push('/lockout');
     });
 
-    // Start the wake word service
     try {
       WakeWordModule.startService();
     } catch (e) {
@@ -57,12 +56,32 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
     if (isLoading) return;
 
     const inAuthScreen = segments[0] === 'auth';
+    const inWakeWordSetup = segments[0] === 'wake-word-setup';
+    const inLockout = segments[0] === 'lockout';
 
     if (!isAuthenticated && !inAuthScreen) {
       profileCreated.current = false;
+      modelChecked.current = false;
       router.replace('/auth');
-    } else if (isAuthenticated && inAuthScreen) {
+      return;
+    }
+
+    if (isAuthenticated && inAuthScreen) {
       router.replace('/wake-word-setup');
+      return;
+    }
+
+    // Check Vosk model once per session after auth
+    if (isAuthenticated && !modelChecked.current && !inWakeWordSetup && !inLockout) {
+      modelChecked.current = true;
+      const { WakeWordModule } = NativeModules;
+      if (WakeWordModule) {
+        WakeWordModule.isModelReady().then((ready: boolean) => {
+          if (!ready) {
+            router.replace('/wake-word-setup');
+          }
+        }).catch(() => {});
+      }
     }
 
     if (isAuthenticated && !profileCreated.current) {
@@ -72,7 +91,6 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
         profileCreated.current = false;
       });
 
-      // Register device ID
       if (!deviceRegistered.current) {
         deviceRegistered.current = true;
         (async () => {
@@ -123,9 +141,9 @@ export default function RootLayout() {
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
           <Stack.Screen name="auth" options={{ headerShown: false }} />
           <Stack.Screen name="lockout" options={{ headerShown: false, presentation: 'fullScreenModal' }} />
+          <Stack.Screen name="wake-word-setup" options={{ headerShown: false }} />
           <Stack.Screen name="voice-setup" options={{ headerShown: false, presentation: 'modal' }} />
           <Stack.Screen name="biometric-setup" options={{ headerShown: false, presentation: 'modal' }} />
-          <Stack.Screen name="wake-word-setup" options={{ headerShown: false }} />
         </Stack>
       </AuthGuard>
     </ConvexAuthProvider>
