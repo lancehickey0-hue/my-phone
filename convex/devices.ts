@@ -333,3 +333,22 @@ export const registerPhysicalDevice = mutation({
     return null;
   },
 });
+
+export const heartbeat = mutation({
+  args: { deviceId: v.id("devices") },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) return null;
+
+    const device = await ctx.db.get(args.deviceId);
+    if (!device || device.userId !== userId) return null;
+
+    await ctx.db.patch(args.deviceId, {
+      lastSeenAt: Date.now(),
+      status: "connected",
+    });
+
+    return null;
+  },
+});
