@@ -28,7 +28,7 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const profileCreated = useRef(false);
   const deviceRegistered = useRef(false);
-  const modelChecked = useRef(false);
+  const setupShown = useRef(false);
 
   // ── Wake word listener ────────────────────────────────────────────────────
   useEffect(() => {
@@ -38,7 +38,6 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
 
     const emitter = new NativeEventEmitter(WakeWordModule);
     const sub = emitter.addListener('WakeWordDetected', () => {
-      console.log('Wake word detected - navigating to lockout');
       router.push('/lockout');
     });
 
@@ -51,7 +50,7 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
     return () => sub.remove();
   }, [isAuthenticated]);
 
-  // ── Auth routing ──────────────────────────────────────────────────────────
+  // ── Auth + setup routing ──────────────────────────────────────────────────
   useEffect(() => {
     if (isLoading) return;
 
@@ -61,27 +60,15 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
 
     if (!isAuthenticated && !inAuthScreen) {
       profileCreated.current = false;
-      modelChecked.current = false;
+      setupShown.current = false;
       router.replace('/auth');
       return;
     }
 
-    if (isAuthenticated && inAuthScreen) {
+    if (isAuthenticated && !inWakeWordSetup && !inLockout && !setupShown.current) {
+      setupShown.current = true;
       router.replace('/wake-word-setup');
       return;
-    }
-
-    // Check Vosk model once per session after auth
-    if (isAuthenticated && !modelChecked.current && !inWakeWordSetup && !inLockout) {
-      modelChecked.current = true;
-      const { WakeWordModule } = NativeModules;
-      if (WakeWordModule) {
-        WakeWordModule.isModelReady().then((ready: boolean) => {
-          if (!ready) {
-            router.replace('/wake-word-setup');
-          }
-        }).catch(() => {});
-      }
     }
 
     if (isAuthenticated && !profileCreated.current) {
