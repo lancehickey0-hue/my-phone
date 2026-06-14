@@ -1,7 +1,7 @@
 import { useQuery } from 'convex/react';
 import { useRouter } from 'expo-router';
-import React from 'react';
-import {
+import React, { useEffect } from 'react';
+import { NativeModules,
   Image,
   Pressable,
   RefreshControl,
@@ -20,6 +20,15 @@ export default function DashboardTab() {
   const activityLog = useQuery(api.profiles.getActivityLog) ?? [];
   const enrollments = useQuery(api.voiceEnrollment.listEnrollments) ?? [];
   const router = useRouter();
+
+  useEffect(() => {
+    const { WakeWordModule } = NativeModules;
+    if (!WakeWordModule) return;
+    WakeWordModule.isModelReady().then((ready) => {
+      if (!ready) router.replace('/wake-word-setup');
+    }).catch(() => {});
+  }, []);
+
 
   const trainedCount = enrollments.filter((e) => e.isEnrolled).length;
 
