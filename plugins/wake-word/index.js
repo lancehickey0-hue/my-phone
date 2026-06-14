@@ -3,6 +3,7 @@ const {
   withDangerousMod,
   withAppBuildGradle,
   withProjectBuildGradle,
+  withMainApplication,
 } = require('@expo/config-plugins');
 const fs = require('fs');
 const path = require('path');
@@ -16,9 +17,9 @@ function withWakeWordService(config) {
     const rootManifest = manifest.manifest;
 
     if (!app.service) app.service = [];
+    if (!app.receiver) app.receiver = [];
     if (!rootManifest['uses-permission']) rootManifest['uses-permission'] = [];
 
-    // RECEIVE_BOOT_COMPLETED permission
     const hasBootPerm = rootManifest['uses-permission'].some(
       p => p.$?.['android:name'] === 'android.permission.RECEIVE_BOOT_COMPLETED'
     );
@@ -28,7 +29,6 @@ function withWakeWordService(config) {
       });
     }
 
-    // WakeWordService
     const serviceExists = app.service.some(
       s => s.$?.['android:name'] === '.WakeWordService'
     );
@@ -43,8 +43,6 @@ function withWakeWordService(config) {
       });
     }
 
-    // BootReceiver
-    if (!app.receiver) app.receiver = [];
     const bootExists = app.receiver.some(
       r => r.$?.['android:name'] === '.BootReceiver'
     );
@@ -67,7 +65,31 @@ function withWakeWordService(config) {
     return config;
   });
 
-  // ── 2. Add Alphacephei Maven repo to project build.gradle ─────────────────
+  // ── 2. Register WakeWordPackage in MainApplication ─────────────────────────
+  config = withMainApplication(config, (config) => {
+    let contents = config.modResults.contents;
+
+    // Add import if missing
+    if (!contents.includes('import com.myphone.app.WakeWordPackage')) {
+      contents = contents.replace(
+        'import expo.modules.ReactNativeHostWrapper',
+        'import expo.modules.ReactNativeHostWrapper\nimport com.myphone.app.WakeWordPackage'
+      );
+    }
+
+    // Add package registration if missing
+    if (!contents.includes('WakeWordPackage')) {
+      contents = contents.replace(
+        'val packages = PackageList(this).packages',
+        'val packages = PackageList(this).packages\n            packages.add(WakeWordPackage())'
+      );
+    }
+
+    config.modResults.contents = contents;
+    return config;
+  });
+
+  // ── 3. Add Alphacephei Maven repo ──────────────────────────────────────────
   config = withProjectBuildGradle(config, (config) => {
     if (!config.modResults.contents.includes('alphacephei')) {
       config.modResults.contents = config.modResults.contents.replace(
@@ -78,7 +100,7 @@ function withWakeWordService(config) {
     return config;
   });
 
-  // ── 3. Add Vosk dependency to app build.gradle ────────────────────────────
+  // ── 4. Add Vosk dependency ─────────────────────────────────────────────────
   config = withAppBuildGradle(config, (config) => {
     if (!config.modResults.contents.includes('vosk-android')) {
       config.modResults.contents = config.modResults.contents.replace(
@@ -89,7 +111,7 @@ function withWakeWordService(config) {
     return config;
   });
 
-  // ── 4. Copy Kotlin files ───────────────────────────────────────────────────
+  // ── 5. Copy Kotlin files ───────────────────────────────────────────────────
   config = withDangerousMod(config, [
     'android',
     async (config) => {
