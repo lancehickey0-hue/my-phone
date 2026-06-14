@@ -5,7 +5,7 @@ import { ConvexReactClient } from 'convex/react';
 import * as SecureStore from 'expo-secure-store';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Platform, NativeModules, NativeEventEmitter } from 'react-native';
 import { api } from '../convex/_generated/api';
 import { colors } from '../src/lib/theme';
@@ -28,7 +28,7 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const profileCreated = useRef(false);
   const deviceRegistered = useRef(false);
-  const setupShown = useRef(false);
+  const [setupChecked, setSetupChecked] = useState(false);
 
   // ── Wake word listener ────────────────────────────────────────────────────
   useEffect(() => {
@@ -50,24 +50,35 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
     return () => sub.remove();
   }, [isAuthenticated]);
 
-  // ── Auth + setup routing ──────────────────────────────────────────────────
+  // ── Wake word setup check ─────────────────────────────────────────────────
+  useEffect(() => {
+    if (!isAuthenticated || setupChecked) return;
+
+    const inWakeWordSetup = segments[0] === 'wake-word-setup';
+    const inLockout = segments[0] === 'lockout';
+    const inAuth = segments[0] === 'auth';
+
+    if (inWakeWordSetup || inLockout || inAuth) return;
+
+    // Small delay to let router settle
+    const timer = setTimeout(() => {
+      setSetupChecked(true);
+      router.replace('/wake-word-setup');
+    }, 500);
+
+    return () => clearTimeout(timer);
+  }, [isAuthenticated, segments, setupChecked]);
+
+  // ── Auth routing ──────────────────────────────────────────────────────────
   useEffect(() => {
     if (isLoading) return;
 
     const inAuthScreen = segments[0] === 'auth';
-    const inWakeWordSetup = segments[0] === 'wake-word-setup';
-    const inLockout = segments[0] === 'lockout';
 
     if (!isAuthenticated && !inAuthScreen) {
       profileCreated.current = false;
-      setupShown.current = false;
+      setSetupChecked(false);
       router.replace('/auth');
-      return;
-    }
-
-    if (isAuthenticated && !inWakeWordSetup && !inLockout && !setupShown.current) {
-      setupShown.current = true;
-      router.replace('/wake-word-setup');
       return;
     }
 
