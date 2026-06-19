@@ -1,7 +1,7 @@
 import { useQuery } from 'convex/react';
 import { useRouter } from 'expo-router';
 import React, { useEffect } from 'react';
-import { NativeModules,
+import { Alert, NativeModules,
   Image,
   Pressable,
   RefreshControl,
@@ -23,10 +23,16 @@ export default function DashboardTab() {
 
   useEffect(() => {
     const { WakeWordModule } = NativeModules;
-    if (!WakeWordModule) return;
+    if (!WakeWordModule) {
+      Alert.alert('Debug', 'WakeWordModule not found');
+      return;
+    }
     WakeWordModule.isModelReady().then((ready) => {
+      Alert.alert('Debug', 'Model ready: ' + ready);
       if (!ready) router.replace('/wake-word-setup');
-    }).catch(() => {});
+    }).catch((e) => {
+      Alert.alert('Debug', 'Error: ' + e.message);
+    });
   }, []);
 
 
