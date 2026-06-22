@@ -48,7 +48,6 @@
     "plugins": [
       "expo-router",
       "expo-local-authentication",
-      "./plugins/wake-word/index.js",
       [
         "expo-location",
         {
