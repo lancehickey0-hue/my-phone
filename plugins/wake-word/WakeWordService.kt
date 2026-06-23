@@ -9,14 +9,9 @@ import android.os.IBinder
 import android.util.Log
 import com.facebook.react.ReactApplication
 import com.facebook.react.modules.core.DeviceEventManagerModule
-import org.vosk.Model
-import org.vosk.Recognizer
-import org.vosk.android.RecognitionListener
-import org.vosk.android.SpeechService
-import org.json.JSONObject
 import java.io.File
 
-class WakeWordService : Service(), RecognitionListener {
+class WakeWordService : Service() {
 
     private val TAG = "WakeWordService"
     private val CHANNEL_ID = "wake_word_channel"
@@ -28,15 +23,18 @@ class WakeWordService : Service(), RecognitionListener {
         "my phone where are you"
     )
 
-    private var speechService: SpeechService? = null
-    private var model: Model? = null
+    private var voskHandler: VoskHandler? = null
     private var isRunning = false
 
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
         startForeground(NOTIFICATION_ID, buildNotification())
-        initVosk()
+        try {
+            initVosk()
+        } catch (e: Throwable) {
+            Log.e(TAG, "Vosk init failed (non-fatal): " + e.message)
+        }
     }
 
     private fun initVosk() {
@@ -47,89 +45,31 @@ class WakeWordService : Service(), RecognitionListener {
                     Log.w(TAG, "Vosk model not downloaded yet - service will wait")
                     return@Thread
                 }
-
-                Log.d(TAG, "Loading Vosk model from ${modelDir.absolutePath}")
-                model = Model(modelDir.absolutePath)
-                val recognizer = Recognizer(model, 16000.0f)
-                speechService = SpeechService(recognizer, 16000.0f)
+                voskHandler = VoskHandler(this, modelDir.absolutePath, WAKE_PHRASES) {
+                    emitWakeWordDetected()
+                }
+                voskHandler?.start()
                 isRunning = true
-                speechService?.startListening(this)
                 Log.d(TAG, "Vosk wake word service started successfully")
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to initialize Vosk: ${e.message}")
+            } catch (e: Throwable) {
+                Log.e(TAG, "Failed to initialize Vosk: " + e.message)
             }
         }.start()
     }
 
-    override fun onResult(hypothesis: String?) {
-        if (hypothesis == null) return
-        try {
-            val text = JSONObject(hypothesis).optString("text", "").lowercase().trim()
-            Log.d(TAG, "Vosk result: '$text'")
-            if (text.isNotEmpty() && matchesWakePhrase(text)) {
-                Log.d(TAG, "✅ Wake phrase matched: $text")
-                emitWakeWordDetected()
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error parsing result: ${e.message}")
-        }
-    }
-
-    override fun onPartialResult(hypothesis: String?) {
-        if (hypothesis == null) return
-        try {
-            val text = JSONObject(hypothesis).optString("partial", "").lowercase().trim()
-            if (text.isNotEmpty() && matchesWakePhrase(text)) {
-                Log.d(TAG, "✅ Wake phrase matched (partial): $text")
-                emitWakeWordDetected()
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error parsing partial: ${e.message}")
-        }
-    }
-
-    override fun onFinalResult(hypothesis: String?) {
-        onResult(hypothesis)
-    }
-
-    override fun onError(e: Exception?) {
-        Log.e(TAG, "Vosk recognition error: ${e?.message}")
-        android.os.Handler(mainLooper).postDelayed({
-            if (isRunning) {
-                speechService?.cancel()
-                speechService = null
-                initVosk()
-            }
-        }, 2000)
-    }
-
-    override fun onTimeout() {
-        speechService?.startListening(this)
-    }
-
-    private fun matchesWakePhrase(text: String): Boolean {
-        return WAKE_PHRASES.any { phrase ->
-            text == phrase || text.contains(phrase)
-        }
-    }
-
     private fun emitWakeWordDetected() {
-        // Send local broadcast
         val intent = Intent("com.myphone.app.WAKE_WORD_DETECTED")
         sendBroadcast(intent)
-
-        // Emit to React Native
         try {
             val reactContext = (application as? ReactApplication)
                 ?.reactNativeHost
                 ?.reactInstanceManager
                 ?.currentReactContext
-
             reactContext
                 ?.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
                 ?.emit("WakeWordDetected", "detected")
         } catch (e: Exception) {
-            Log.e(TAG, "Could not emit to RN: ${e.message}")
+            Log.e(TAG, "Could not emit to RN: " + e.message)
         }
     }
 
@@ -157,10 +97,12 @@ class WakeWordService : Service(), RecognitionListener {
     override fun onDestroy() {
         super.onDestroy()
         isRunning = false
-        speechService?.stop()
-        speechService = null
-        model?.close()
-        model = null
+        try {
+            voskHandler?.stop()
+        } catch (e: Throwable) {
+            Log.e(TAG, "Error stopping Vosk: " + e.message)
+        }
+        voskHandler = null
     }
 
     override fun onBind(intent: Intent?): IBinder? = null

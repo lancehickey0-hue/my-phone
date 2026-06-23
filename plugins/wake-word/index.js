@@ -127,6 +127,7 @@ function withWakeWordService(config) {
         'WakeWordPackage.kt',
         'BootReceiver.kt',
         'VoskModelManager.kt',
+        'VoskHandler.kt',
       ]) {
         fs.copyFileSync(path.join(wakeDir, f), path.join(srcDir, f));
       }
