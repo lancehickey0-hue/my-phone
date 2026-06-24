@@ -23,16 +23,10 @@ export default function DashboardTab() {
 
   useEffect(() => {
     const { WakeWordModule } = NativeModules;
-    if (!WakeWordModule) {
-      Alert.alert('Debug', 'WakeWordModule not found');
-      return;
-    }
+    if (!WakeWordModule) return;
     WakeWordModule.isModelReady().then((ready) => {
-      Alert.alert('Debug', 'Model ready: ' + ready);
       if (!ready) router.replace('/wake-word-setup');
-    }).catch((e) => {
-      Alert.alert('Debug', 'Error: ' + e.message);
-    });
+    }).catch(() => {});
   }, []);
 
 
