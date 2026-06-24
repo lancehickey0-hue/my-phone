@@ -78,7 +78,7 @@ function withWakeWordService(config) {
     }
 
     // Add package registration if missing
-    if (!contents.includes('WakeWordPackage')) {
+    if (!contents.includes('packages.add(WakeWordPackage())')) {
       contents = contents.replace(
         'val packages = PackageList(this).packages',
         'val packages = PackageList(this).packages\n            packages.add(WakeWordPackage())'
