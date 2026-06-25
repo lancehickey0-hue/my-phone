@@ -62,7 +62,7 @@ object VoskModelManager {
                 zipFile.delete()
                 Log.d(TAG, "Vosk model ready")
                 mainHandler.post { onComplete() }
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
                 Log.e(TAG, "Download failed: " + e.message)
                 mainHandler.post { onError(e.message ?: "Download failed") }
             }
