@@ -9,6 +9,7 @@ import com.facebook.react.bridge.ReactMethod
 import com.facebook.react.bridge.LifecycleEventListener
 import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.Callback
+import com.facebook.react.modules.core.DeviceEventManagerModule
 
 @ReactModule(name = WakeWordModule.NAME)
 class WakeWordModule(private val reactContext: ReactApplicationContext) :
@@ -54,10 +55,14 @@ class WakeWordModule(private val reactContext: ReactApplicationContext) :
     }
 
     @ReactMethod
-    fun downloadModel(onProgress: Callback, onComplete: Callback, onError: Callback) {
+    fun downloadModel(onComplete: Callback, onError: Callback) {
         VoskModelManager.downloadModel(
             reactContext,
-            onProgress = { progress -> onProgress.invoke(progress) },
+            onProgress = { progress ->
+                reactContext
+                    .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
+                    .emit("VoskDownloadProgress", progress)
+            },
             onComplete = {
                 onComplete.invoke()
                 startService()

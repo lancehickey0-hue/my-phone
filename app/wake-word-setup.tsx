@@ -4,6 +4,7 @@ import {
   Text,
   StyleSheet,
   NativeModules,
+  NativeEventEmitter,
   ActivityIndicator,
   Pressable,
 } from 'react-native';
@@ -34,13 +35,16 @@ export default function WakeWordSetupScreen() {
         setTimeout(() => router.replace('/(tabs)'), 1000);
       } else {
         setStatus('downloading');
+        const emitter = new NativeEventEmitter(WakeWordModule);
+        const progressSub = emitter.addListener('VoskDownloadProgress', (p: number) => setProgress(p));
         WakeWordModule.downloadModel(
-          (p: number) => setProgress(p),
           () => {
+            progressSub.remove();
             setStatus('ready');
             setTimeout(() => router.replace('/(tabs)'), 1500);
           },
           (err: string) => {
+            progressSub.remove();
             setStatus('error');
             setError(err);
           }

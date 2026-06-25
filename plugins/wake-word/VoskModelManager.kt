@@ -34,7 +34,7 @@ object VoskModelManager {
                 val url = URL(MODEL_URL)
                 val conn = url.openConnection() as HttpURLConnection
                 conn.connectTimeout = 15000
-                conn.readTimeout = 30000
+                conn.readTimeout = 120000
                 conn.connect()
                 val totalBytes = conn.contentLength
                 var downloadedBytes = 0
