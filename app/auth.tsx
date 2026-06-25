@@ -35,12 +35,15 @@ export default function AuthScreen() {
     setLoading(true);
     setError('');
     try {
-      await signIn('password', {
+      const payload: Record<string, string> = {
         email: email.trim(),
         password,
-        name: mode === 'signup' ? name.trim() : undefined,
         flow: mode === 'signup' ? 'signUp' : 'signIn',
-      });
+      };
+      if (mode === 'signup') {
+        payload.name = name.trim();
+      }
+      await signIn('password', payload);
     } catch (e: any) {
       const errorMsg = e.message || 'Failed to sign in. Please try again.';
       setError(errorMsg);
