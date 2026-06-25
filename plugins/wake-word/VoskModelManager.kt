@@ -39,24 +39,24 @@ object VoskModelManager {
                 val totalBytes = conn.contentLength
                 var downloadedBytes = 0
                 val zipFile = File(context.cacheDir, "vosk-model.zip")
-                val output = FileOutputStream(zipFile)
-                val input = conn.inputStream
                 val buffer = ByteArray(8192)
                 var bytesRead: Int
                 var lastReportedProgress = -1
-                while (input.read(buffer).also { bytesRead = it } != -1) {
-                    output.write(buffer, 0, bytesRead)
-                    downloadedBytes += bytesRead
-                    if (totalBytes > 0) {
-                        val progress = (downloadedBytes * 100 / totalBytes)
-                        if (progress != lastReportedProgress) {
-                            lastReportedProgress = progress
-                            mainHandler.post { onProgress(progress) }
+                FileOutputStream(zipFile).use { output ->
+                    conn.inputStream.use { input ->
+                        while (input.read(buffer).also { bytesRead = it } != -1) {
+                            output.write(buffer, 0, bytesRead)
+                            downloadedBytes += bytesRead
+                            if (totalBytes > 0) {
+                                val progress = (downloadedBytes * 100 / totalBytes)
+                                if (progress != lastReportedProgress) {
+                                    lastReportedProgress = progress
+                                    mainHandler.post { onProgress(progress) }
+                                }
+                            }
                         }
                     }
                 }
-                output.close()
-                input.close()
                 Log.d(TAG, "Download complete, extracting...")
                 extractZip(zipFile, context.filesDir)
                 zipFile.delete()
