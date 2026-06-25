@@ -73,10 +73,14 @@ object VoskModelManager {
         val modelDir = File(destDir, MODEL_DIR_NAME)
         modelDir.mkdirs()
         ZipInputStream(zipFile.inputStream()).use { zip ->
+            var stripPrefix: String? = null
             var entry = zip.nextEntry
             while (entry != null) {
-                val parts = entry.name.split("/", limit = 2)
-                val relativePath = if (parts.size > 1) parts[1] else ""
+                if (stripPrefix == null) {
+                    val slash = entry.name.indexOf('/')
+                    stripPrefix = if (slash > 0) entry.name.substring(0, slash + 1) else ""
+                }
+                val relativePath = entry.name.removePrefix(stripPrefix!!)
                 if (relativePath.isNotEmpty()) {
                     val outFile = File(modelDir, relativePath)
                     if (entry.isDirectory) {
