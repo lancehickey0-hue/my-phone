@@ -37,18 +37,17 @@ export default function WakeWordSetupScreen() {
         setStatus('downloading');
         const emitter = new NativeEventEmitter(WakeWordModule);
         const progressSub = emitter.addListener('VoskDownloadProgress', (p: number) => setProgress(p));
-        WakeWordModule.downloadModel(
-          () => {
+        WakeWordModule.downloadModel()
+          .then(() => {
             progressSub.remove();
             setStatus('ready');
             setTimeout(() => router.replace('/(tabs)'), 1500);
-          },
-          (err: string) => {
+          })
+          .catch((err: { message: string }) => {
             progressSub.remove();
             setStatus('error');
-            setError(err);
-          }
-        );
+            setError(err.message ?? 'Download failed');
+          });
       }
     } catch (e: any) {
       router.replace('/(tabs)');
