@@ -7,7 +7,7 @@ on:
 
 jobs:
   build:
-    name: Build Android debug APK
+    name: Build Android release APK
     runs-on: ubuntu-latest
 
     steps:
@@ -30,7 +30,18 @@ jobs:
         run: npm ci
 
       - name: Expo prebuild
-        run: npx expo prebuild --platform android --clean --non-interactive
+        run: npx expo prebuild --platform android --clean
+        env:
+          CI: '1'
+
+      - name: Generate signing keystore
+        run: |
+          keytool -genkey -noprompt -v \
+            -keystore android/app/release.keystore \
+            -alias release \
+            -keyalg RSA -keysize 2048 -validity 10000 \
+            -storepass android -keypass android \
+            -dname "CN=MyPhone,O=MyPhone,C=US"
 
       - name: Cache Gradle
         uses: actions/cache@v4
@@ -41,20 +52,18 @@ jobs:
           key: gradle-${{ hashFiles('android/**/*.gradle*', 'android/gradle/wrapper/gradle-wrapper.properties') }}
           restore-keys: gradle-
 
-      - name: Build debug APK
+      - name: Build release APK
         run: |
-          echo "=== android/ contents ==="
-          ls -la android/
-          echo "=== settings.gradle ==="
-          cat android/settings.gradle 2>/dev/null || echo "MISSING"
-          echo "=== gradlew exists ==="
-          ls -la android/gradlew
           chmod +x android/gradlew
-          cd android && ./gradlew assembleDebug --no-daemon
+          cd android && ./gradlew assembleRelease --no-daemon \
+            -Pandroid.injected.signing.store.file=$PWD/app/release.keystore \
+            -Pandroid.injected.signing.store.password=android \
+            -Pandroid.injected.signing.key.alias=release \
+            -Pandroid.injected.signing.key.password=android
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: app-debug
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          name: app-release
+          path: android/app/build/outputs/apk/release/app-release-unsigned.apk
           retention-days: 14
