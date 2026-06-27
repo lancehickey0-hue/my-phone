@@ -32,9 +32,6 @@ jobs:
       - name: Expo prebuild
         run: npx expo prebuild --platform android --clean --non-interactive
 
-      - name: Verify android directory
-        run: ls -la android/ && ls -la android/app/
-
       - name: Cache Gradle
         uses: actions/cache@v4
         with:
@@ -46,6 +43,12 @@ jobs:
 
       - name: Build debug APK
         run: |
+          echo "=== android/ contents ==="
+          ls -la android/
+          echo "=== settings.gradle ==="
+          cat android/settings.gradle 2>/dev/null || echo "MISSING"
+          echo "=== gradlew exists ==="
+          ls -la android/gradlew
           chmod +x android/gradlew
           cd android && ./gradlew assembleDebug --no-daemon
 
