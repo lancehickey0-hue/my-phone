@@ -73,16 +73,14 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (isLoading) return;
 
-    const inAuthScreen = segments[0] === 'auth';
-
-    if (!isAuthenticated && !inAuthScreen) {
+    if (!isAuthenticated) {
       profileCreated.current = false;
       setSetupChecked(false);
       router.replace('/auth');
       return;
     }
 
-    if (isAuthenticated && !profileCreated.current) {
+    if (!profileCreated.current) {
       profileCreated.current = true;
 
       ensureProfile().catch(() => {
@@ -119,7 +117,7 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
         })();
       }
     }
-  }, [isAuthenticated, isLoading, segments]);
+  }, [isAuthenticated, isLoading]);
 
   return <>{children}</>;
 }
