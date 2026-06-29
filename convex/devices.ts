@@ -1,6 +1,7 @@
 import { getAuthUserId } from "@convex-dev/auth/server";
-import { mutation, query } from "./_generated/server";
+import { mutation, query, action, internalAction, internalMutation } from "./_generated/server";
 import { v } from "convex/values";
+import { internal } from "./_generated/api";
 
 // Default wake phrases per device type
 const DEFAULT_WAKE_PHRASES: Record<string, string> = {
@@ -197,6 +198,45 @@ export const triggerAlarm = mutation({
       timestamp: Date.now(),
     });
 
+    // Send push notification to the physical device if it has a token
+    if (device.expoPushToken) {
+      await ctx.scheduler.runAfter(0, internal.devices.sendAlarmPush, {
+        expoPushToken: device.expoPushToken,
+        deviceName: device.name,
+        deviceId: args.deviceId,
+      });
+    }
+
+    return null;
+  },
+});
+
+// Internal action — sends Expo push notification to wake a remote device
+export const sendAlarmPush = internalAction({
+  args: {
+    expoPushToken: v.string(),
+    deviceName: v.string(),
+    deviceId: v.id("devices"),
+  },
+  returns: v.null(),
+  handler: async (_ctx, args) => {
+    try {
+      await fetch("https://exp.host/--/api/v2/push/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          to: args.expoPushToken,
+          title: "🔔 Alarm Triggered",
+          body: `${args.deviceName} is alarming — tap to view`,
+          data: { deviceId: args.deviceId, type: "alarm" },
+          sound: "default",
+          priority: "high",
+          channelId: "alarm",
+        }),
+      });
+    } catch (e) {
+      console.error("[sendAlarmPush] Failed:", e);
+    }
     return null;
   },
 });
@@ -328,6 +368,22 @@ export const registerPhysicalDevice = mutation({
       physicalDeviceId: args.physicalDeviceId,
       expoPushToken: args.expoPushToken,
       status: "connected",
+      lastSeenAt: Date.now(),
+    });
+    return null;
+  },
+});
+
+export const markOffline = mutation({
+  args: { deviceId: v.id("devices") },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) return null;
+    const device = await ctx.db.get(args.deviceId);
+    if (!device || device.userId !== userId) return null;
+    await ctx.db.patch(args.deviceId, {
+      status: "disconnected",
       lastSeenAt: Date.now(),
     });
     return null;

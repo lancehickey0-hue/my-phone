@@ -48,6 +48,7 @@ export default function AuthScreen() {
     setLoading(true);
     setError('');
     try {
+      await clearStaleTokens();
       const payload: Record<string, string> = {
         email: email.trim(),
         password,
@@ -56,17 +57,7 @@ export default function AuthScreen() {
       if (mode === 'signup') {
         payload.name = name.trim();
       }
-      try {
-        await signIn('password', payload);
-      } catch (e: any) {
-        if (e.message?.includes('Invalid refresh token') || e.message?.includes('refresh token')) {
-          // Stale token from a previous session — clear it and retry once
-          await clearStaleTokens();
-          await signIn('password', payload);
-        } else {
-          throw e;
-        }
-      }
+      await signIn('password', payload);
     } catch (e: any) {
       const errorMsg = e.message || 'Failed to sign in. Please try again.';
       setError(errorMsg);

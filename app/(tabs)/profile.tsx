@@ -128,13 +128,13 @@ export default function ProfileTab() {
       {(profile?.role === 'owner' || profile?.role === 'admin') && (
         <View style={styles.card}>
           <Text style={styles.cardTitle}>Admin</Text>
-          <Pressable style={styles.menuRow}>
+          <Pressable style={styles.menuRow} onPress={() => router.push('/manage-users')}>
             <Text style={styles.menuEmoji}>👥</Text>
             <Text style={styles.menuText}>Manage Users</Text>
             <Text style={styles.chevron}>›</Text>
           </Pressable>
           <View style={styles.divider} />
-          <Pressable style={styles.menuRow}>
+          <Pressable style={styles.menuRow} onPress={() => router.push('/activity-log')}>
             <Text style={styles.menuEmoji}>📊</Text>
             <Text style={styles.menuText}>Activity Log</Text>
             <Text style={styles.chevron}>›</Text>

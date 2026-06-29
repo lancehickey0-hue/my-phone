@@ -2,6 +2,7 @@ import { useMutation, useQuery } from 'convex/react';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
 import {
+  Alert,
   Animated,
   NativeEventEmitter,
   NativeModules,
@@ -25,9 +26,10 @@ export default function LocateTab() {
   const devices = useQuery(api.devices.list) ?? [];
   const enrollments = useQuery(api.voiceEnrollment.listEnrollments) ?? [];
   const triggerAlarm = useMutation(api.devices.triggerAlarm);
+  const stopAlarm = useMutation(api.devices.stopAlarm);
   const router = useRouter();
 
-  const [selectedDeviceId, setSelectedDeviceId] = useState<Id<"devices"> | null>(null);
+  const [selectedDeviceId, setSelectedDeviceId] = useState<Id<'devices'> | null>(null);
   const [listenState, setListenState] = useState<ListenState>('idle');
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const ringAnim = useRef(new Animated.Value(0)).current;
@@ -48,7 +50,8 @@ export default function LocateTab() {
   const enrollmentByDevice = new Map(enrollments.map((e) => [e.deviceId, e]));
   const enrolledCount = enrollments.filter((e) => e.isEnrolled).length;
 
-  // ── Listen for real wake word detection ────────────────────────────────────
+  // ── Listen for native wake word detection (THIS device heard its phrase) ──
+  // When detected: alarm the selected target device remotely
   useEffect(() => {
     if (!WakeWordModule) return;
 
@@ -59,20 +62,15 @@ export default function LocateTab() {
       isListeningRef.current = false;
       setListenState('detected');
 
-      // Trigger alarm in Convex DB
       try {
         await triggerAlarm({ deviceId: selectedDeviceId });
       } catch (e) {
-        console.warn('Failed to trigger alarm in DB:', e);
+        console.warn('triggerAlarm failed:', e);
       }
 
-      // Start local alarm audio + vibration
-      const alarmMgr = getAlarmManager();
-      alarmMgr.triggerAlarm(selectedDeviceId, 'voice');
-
+      getAlarmManager().triggerAlarm(selectedDeviceId, 'voice');
       setListenState('activated');
 
-      // Navigate to lockout screen
       setTimeout(() => {
         router.push({
           pathname: '/lockout',
@@ -88,7 +86,7 @@ export default function LocateTab() {
     return () => sub.remove();
   }, [selectedDeviceId, selectedDevice]);
 
-  // ── Animations ─────────────────────────────────────────────────────────────
+  // ── Pulse animation while listening ────────────────────────────────────────
   useEffect(() => {
     if (listenState === 'listening') {
       const fade = Animated.loop(
@@ -125,32 +123,78 @@ export default function LocateTab() {
     }
   }, [listenState]);
 
-  // ── Button press ───────────────────────────────────────────────────────────
+  // ── Button: hold to listen for wake phrase, or remote alarm ───────────────
   function handleInfinityPress() {
-    if (!selectedDeviceId || !isEnrolled) {
-      router.push({ pathname: '/voice-setup', params: { deviceId: selectedDeviceId ?? '' } });
-      return;
-    }
+    if (!selectedDeviceId) return;
 
     if (listenState === 'idle') {
-      setListenState('listening');
-      isListeningRef.current = true;
-      // Wake word service is always running in background
-      // Just set the flag so we respond to the next detection
+      if (isEnrolled) {
+        // Voice mode: listen for wake phrase
+        setListenState('listening');
+        isListeningRef.current = true;
+      } else {
+        // No voice training — offer remote alarm instead
+        Alert.alert(
+          'Voice Not Trained',
+          `Train the wake phrase for ${selectedDevice?.name ?? 'this device'} to use voice detection, or trigger a remote alarm now.`,
+          [
+            { text: 'Train Voice', onPress: () => router.push({ pathname: '/voice-setup', params: { deviceId: selectedDeviceId } }) },
+            { text: 'Remote Alarm', style: 'destructive', onPress: () => handleRemoteAlarm() },
+            { text: 'Cancel', style: 'cancel' },
+          ]
+        );
+      }
     } else if (listenState === 'listening') {
-      // Cancel listening
       isListeningRef.current = false;
       setListenState('idle');
     }
   }
 
+  async function handleRemoteAlarm() {
+    if (!selectedDeviceId) return;
+    try {
+      await triggerAlarm({ deviceId: selectedDeviceId });
+      setListenState('activated');
+      setTimeout(() => {
+        router.push({
+          pathname: '/lockout',
+          params: {
+            deviceId: selectedDeviceId,
+            deviceName: selectedDevice?.name ?? 'This Device',
+            deviceType: selectedDevice?.type ?? 'phone',
+          },
+        });
+      }, 300);
+    } catch (e: any) {
+      Alert.alert('Error', e.message ?? 'Could not trigger alarm.');
+    }
+  }
+
+  async function handleStopAlarm() {
+    if (!selectedDeviceId) return;
+    try {
+      await stopAlarm({ deviceId: selectedDeviceId });
+      getAlarmManager().deactivateAlarm(selectedDeviceId, 'remote_unlock');
+      setListenState('idle');
+    } catch (e: any) {
+      Alert.alert('Error', e.message ?? 'Could not stop alarm.');
+    }
+  }
+
+  const isAlarming = selectedDevice?.isAlarmActive ?? false;
+
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <View style={styles.statusHeader}>
         <Text style={styles.pageTitle}>Voice Locator</Text>
-        <Text style={styles.pageSubtitle}>Select a device and say its wake phrase</Text>
+        <Text style={styles.pageSubtitle}>
+          {isAlarming
+            ? `${selectedDevice?.name ?? 'Device'} is alarming`
+            : 'Select a device, then press the button and say its wake phrase'}
+        </Text>
       </View>
 
+      {/* Device chips */}
       {devices.length > 0 && (
         <View style={styles.deviceChipsWrap}>
           {devices.map((device) => {
@@ -159,7 +203,7 @@ export default function LocateTab() {
             return (
               <Pressable
                 key={device._id}
-                style={[styles.deviceChip, isSelected && styles.deviceChipSelected]}
+                style={[styles.deviceChip, isSelected && styles.deviceChipSelected, device.isAlarmActive && styles.deviceChipAlarm]}
                 onPress={() => {
                   setSelectedDeviceId(device._id);
                   setListenState('idle');
@@ -170,7 +214,7 @@ export default function LocateTab() {
                 <View>
                   <Text style={[styles.chipName, isSelected && styles.chipNameSelected]}>{device.name}</Text>
                   <Text style={[styles.chipStatus, enrolled ? styles.chipEnrolled : styles.chipNotEnrolled]}>
-                    {enrolled ? '✓ Trained' : '○ Not trained'}
+                    {device.isAlarmActive ? '🔔 Alarming' : enrolled ? '✓ Trained' : '○ Not trained'}
                   </Text>
                 </View>
               </Pressable>
@@ -179,6 +223,7 @@ export default function LocateTab() {
         </View>
       )}
 
+      {/* Infinity button */}
       <View style={styles.infinityContainer}>
         {listenState === 'listening' && (
           <>
@@ -186,7 +231,7 @@ export default function LocateTab() {
             <Animated.View style={[styles.infinityRing, styles.infinityRingMiddle, { opacity: Animated.multiply(ringAnim, new Animated.Value(0.25)) }]} />
           </>
         )}
-        {listenState === 'activated' && (
+        {(listenState === 'activated' || isAlarming) && (
           <Animated.View style={[styles.infinityRing, styles.infinityRingDanger, { opacity: glowAnim }]} />
         )}
 
@@ -195,12 +240,11 @@ export default function LocateTab() {
             styles.infinityButton,
             listenState === 'listening' && styles.infinityButtonListening,
             listenState === 'detected' && styles.infinityButtonDetected,
-            listenState === 'activated' && styles.infinityButtonActivated,
-            !isEnrolled && selectedDevice && styles.infinityButtonDisabled,
+            (listenState === 'activated' || isAlarming) && styles.infinityButtonActivated,
           ]}
-          onPress={handleInfinityPress}
+          onPress={isAlarming ? handleStopAlarm : handleInfinityPress}
         >
-          {listenState === 'activated' ? (
+          {(listenState === 'activated' || isAlarming) ? (
             <Animated.Text style={[styles.infinityAlarmEmoji, { opacity: glowAnim }]}>🔔</Animated.Text>
           ) : listenState === 'detected' ? (
             <Text style={styles.infinityDetectedEmoji}>🎯</Text>
@@ -217,8 +261,12 @@ export default function LocateTab() {
       {listenState === 'listening' && (
         <Text style={styles.listeningHint}>Listening... say "{activeWakePhrase}"</Text>
       )}
+      {isAlarming && (
+        <Text style={styles.alarmingHint}>Tap the button to stop the alarm</Text>
+      )}
 
-      {selectedDevice && (
+      {/* Wake phrase card */}
+      {selectedDevice && !isAlarming && (
         <View style={styles.phraseCard}>
           <Text style={styles.phraseLabel}>WAKE PHRASE FOR {selectedDevice.name.toUpperCase()}</Text>
           <Text style={styles.phraseText}>"{activeWakePhrase}"</Text>
@@ -228,7 +276,8 @@ export default function LocateTab() {
         </View>
       )}
 
-      {selectedDevice && !isEnrolled && (
+      {/* Train prompt if not enrolled */}
+      {selectedDevice && !isEnrolled && !isAlarming && (
         <Pressable
           style={styles.setupCard}
           onPress={() => router.push({ pathname: '/voice-setup', params: { deviceId: selectedDeviceId ?? '' } })}
@@ -241,6 +290,26 @@ export default function LocateTab() {
         </Pressable>
       )}
 
+      {/* Remote alarm button — always available */}
+      {selectedDevice && !isAlarming && (
+        <Pressable
+          style={styles.remoteAlarmBtn}
+          onPress={() =>
+            Alert.alert(
+              'Remote Alarm',
+              `Sound alarm on ${selectedDevice.name}? The device will alarm and lock until unlocked with biometrics.`,
+              [
+                { text: 'Cancel', style: 'cancel' },
+                { text: 'Sound Alarm', style: 'destructive', onPress: handleRemoteAlarm },
+              ]
+            )
+          }
+        >
+          <Text style={styles.remoteAlarmText}>🚨 Remote Alarm — {selectedDevice.name}</Text>
+        </Pressable>
+      )}
+
+      {/* All devices summary */}
       {devices.length > 1 && (
         <View style={styles.allDevicesCard}>
           <View style={styles.allDevicesHeader}>
@@ -272,13 +341,14 @@ export default function LocateTab() {
         </View>
       )}
 
+      {/* How it works */}
       <View style={styles.howItWorks}>
         <Text style={styles.howTitle}>How It Works</Text>
         <View style={styles.stepRow}>
           <View style={styles.step}>
             <Text style={styles.stepNum}>1</Text>
             <Text style={styles.stepEmoji}>🗣️</Text>
-            <Text style={styles.stepText}>Say device's phrase</Text>
+            <Text style={styles.stepText}>Say device's wake phrase</Text>
           </View>
           <Text style={styles.stepArrow}>→</Text>
           <View style={styles.step}>
@@ -295,20 +365,6 @@ export default function LocateTab() {
         </View>
       </View>
 
-      <View style={styles.nativeCard}>
-        <Text style={styles.nativeTitle}>🧠 Native Wake Word Engine</Text>
-        <Text style={styles.nativeDesc}>
-          On-device voice processing detects each device's unique wake phrase — screen off, app in background. Voice data never leaves your device.
-        </Text>
-        <View style={styles.nativeBadges}>
-          {['Always On', 'Low Power', 'On-Device', 'Private', 'Per-Device'].map((badge) => (
-            <View key={badge} style={styles.nativeBadge}>
-              <Text style={styles.nativeBadgeText}>{badge}</Text>
-            </View>
-          ))}
-        </View>
-      </View>
-
       <View style={{ height: 40 }} />
     </ScrollView>
   );
@@ -320,15 +376,18 @@ const styles = StyleSheet.create({
   statusHeader: { alignItems: 'center', marginBottom: spacing.lg },
   pageTitle: { fontSize: fontSize.title, fontWeight: '800', color: colors.gold },
   pageSubtitle: { fontSize: fontSize.sm, color: colors.textSecondary, marginTop: spacing.xs, textAlign: 'center' },
+
   deviceChipsWrap: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: 8, marginBottom: spacing.xl, width: '100%' },
   deviceChip: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, backgroundColor: colors.bgCard, borderRadius: borderRadius.full, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderWidth: 1, borderColor: colors.border },
   deviceChipSelected: { borderColor: colors.gold, backgroundColor: colors.goldDim },
+  deviceChipAlarm: { borderColor: colors.danger, backgroundColor: colors.dangerDim },
   chipEmoji: { fontSize: 16 },
   chipName: { fontSize: fontSize.xs, fontWeight: '600', color: colors.textSecondary },
   chipNameSelected: { color: colors.gold },
   chipStatus: { fontSize: 10, marginTop: 1 },
   chipEnrolled: { color: colors.success },
   chipNotEnrolled: { color: colors.textMuted },
+
   infinityContainer: { alignItems: 'center', justifyContent: 'center', height: 200, width: 200, marginBottom: spacing.xl },
   infinityRing: { position: 'absolute', borderRadius: 999, borderWidth: 2, borderColor: colors.gold },
   infinityRingOuter: { width: 200, height: 200 },
@@ -338,20 +397,27 @@ const styles = StyleSheet.create({
   infinityButtonListening: { borderColor: colors.gold, backgroundColor: colors.goldDim },
   infinityButtonDetected: { borderColor: colors.success, backgroundColor: colors.successDim },
   infinityButtonActivated: { borderColor: colors.danger, backgroundColor: colors.dangerDim },
-  infinityButtonDisabled: { opacity: 0.5, borderColor: colors.textMuted },
   infinityLogoImage: { width: 90, height: 45 },
   infinityDetectedEmoji: { fontSize: 44 },
   infinityAlarmEmoji: { fontSize: 44 },
+
   listeningHint: { fontSize: fontSize.sm, color: colors.gold, marginBottom: spacing.lg, textAlign: 'center', fontStyle: 'italic' },
+  alarmingHint: { fontSize: fontSize.sm, color: colors.danger, marginBottom: spacing.lg, textAlign: 'center', fontStyle: 'italic' },
+
   phraseCard: { backgroundColor: colors.bgCard, borderRadius: borderRadius.lg, padding: spacing.xl, width: '100%', alignItems: 'center', borderWidth: 1, borderColor: colors.goldBorder, marginBottom: spacing.lg },
   phraseLabel: { fontSize: 10, color: colors.textMuted, letterSpacing: 1.5, marginBottom: spacing.sm },
   phraseText: { fontSize: fontSize.lg, fontWeight: '700', color: colors.gold, textAlign: 'center' },
   phraseCustom: { fontSize: 11, color: colors.gold, marginTop: spacing.xs, fontStyle: 'italic' },
+
   setupCard: { backgroundColor: colors.bgCard, borderRadius: borderRadius.lg, padding: spacing.xl, width: '100%', alignItems: 'center', borderWidth: 1, borderColor: colors.goldBorder, marginBottom: spacing.lg },
   setupTitle: { fontSize: fontSize.md, fontWeight: '700', color: colors.gold, marginBottom: spacing.sm },
   setupDesc: { fontSize: fontSize.sm, color: colors.textSecondary, textAlign: 'center', lineHeight: 20 },
   setupBtn: { backgroundColor: colors.gold, borderRadius: borderRadius.sm, paddingHorizontal: spacing.xxl, paddingVertical: spacing.md, marginTop: spacing.lg },
   setupBtnText: { color: colors.bgPrimary, fontWeight: '700', fontSize: fontSize.md },
+
+  remoteAlarmBtn: { width: '100%', backgroundColor: colors.dangerDim, borderRadius: borderRadius.md, padding: spacing.md, alignItems: 'center', borderWidth: 1, borderColor: colors.danger + '40', marginBottom: spacing.lg },
+  remoteAlarmText: { color: colors.danger, fontWeight: '700', fontSize: fontSize.sm },
+
   allDevicesCard: { backgroundColor: colors.bgCard, borderRadius: borderRadius.lg, padding: spacing.lg, width: '100%', borderWidth: 1, borderColor: colors.border, marginBottom: spacing.lg },
   allDevicesHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.md },
   allDevicesTitle: { fontSize: fontSize.md, fontWeight: '700', color: colors.gold },
@@ -365,6 +431,7 @@ const styles = StyleSheet.create({
   enrollBadgeInactive: { backgroundColor: 'rgba(255,255,255,0.05)' },
   enrollBadgeText: { fontSize: 14, color: colors.textMuted },
   enrollBadgeTextActive: { color: colors.success },
+
   howItWorks: { backgroundColor: colors.bgCard, borderRadius: borderRadius.lg, padding: spacing.lg, width: '100%', borderWidth: 1, borderColor: colors.border, marginBottom: spacing.lg },
   howTitle: { fontSize: fontSize.md, fontWeight: '700', color: colors.gold, marginBottom: spacing.lg, textAlign: 'center' },
   stepRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center' },
@@ -373,10 +440,4 @@ const styles = StyleSheet.create({
   stepEmoji: { fontSize: 28, marginBottom: 6 },
   stepText: { fontSize: fontSize.xs, color: colors.textSecondary, textAlign: 'center' },
   stepArrow: { fontSize: fontSize.lg, color: colors.textMuted, marginHorizontal: 4 },
-  nativeCard: { backgroundColor: colors.bgCard, borderRadius: borderRadius.lg, padding: spacing.lg, width: '100%', borderWidth: 1, borderColor: colors.border },
-  nativeTitle: { fontSize: fontSize.md, fontWeight: '700', color: colors.textPrimary, marginBottom: spacing.sm },
-  nativeDesc: { fontSize: fontSize.sm, color: colors.textSecondary, lineHeight: 20, marginBottom: spacing.md },
-  nativeBadges: { flexDirection: 'row', gap: spacing.sm, flexWrap: 'wrap' },
-  nativeBadge: { backgroundColor: colors.goldDim, borderRadius: borderRadius.full, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderWidth: 1, borderColor: colors.goldBorder },
-  nativeBadgeText: { fontSize: fontSize.xs, color: colors.gold, fontWeight: '600' },
 });

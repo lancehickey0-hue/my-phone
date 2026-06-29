@@ -1,10 +1,20 @@
 import { Tabs } from 'expo-router';
-import React, { useEffect } from 'react';
-import { Image, Text, AppState } from 'react-native';
+import React, { useEffect, useRef } from 'react';
+import { Image, Text, AppState, Platform } from 'react-native';
 import { useQuery, useMutation } from 'convex/react';
+import * as Location from 'expo-location';
+import * as Notifications from 'expo-notifications';
 import { api } from '../../convex/_generated/api';
 import { AlarmWatcher } from '../../src/lib/AlarmWatcher';
 import { colors } from '../../src/lib/theme';
+
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowAlert: true,
+    shouldPlaySound: true,
+    shouldSetBadge: false,
+  }),
+});
 
 function TabIcon({ emoji, focused, isInfinity }: { emoji: string; focused: boolean; isInfinity?: boolean }) {
   if (isInfinity) {
@@ -30,27 +40,116 @@ function HeartbeatManager() {
   const devices = useQuery(api.devices.list) ?? [];
   const heartbeat = useMutation(api.devices.heartbeat);
   const markOffline = useMutation(api.devices.markOffline);
+  const updateLocation = useMutation(api.devices.updateLocation);
+  const registerPhysicalDevice = useMutation(api.devices.registerPhysicalDevice);
 
+  // Register push notification token and link to the physical device record
+  useEffect(() => {
+    (async () => {
+      try {
+        const { status } = await Notifications.requestPermissionsAsync();
+        if (status !== 'granted') return;
+
+        const tokenData = await Notifications.getExpoPushTokenAsync({
+          projectId: 'a57089db-f8e0-4314-888b-29c19c9665cb',
+        });
+        const expoPushToken = tokenData.data;
+
+        const physicalId = (globalThis as any).__myPhoneDeviceId;
+        if (!physicalId || devices.length === 0) return;
+
+        const myDevice = devices.find((d) => d.physicalDeviceId === physicalId);
+        if (myDevice && myDevice.expoPushToken !== expoPushToken) {
+          await registerPhysicalDevice({
+            deviceId: myDevice._id,
+            physicalDeviceId: physicalId,
+            expoPushToken,
+          });
+        }
+      } catch (e) {
+        console.warn('[PushToken] Failed to register:', e);
+      }
+    })();
+  }, [devices.length]);
+
+  // GPS location tracking — update this device's location in Convex
+  useEffect(() => {
+    let locationSub: Location.LocationSubscription | null = null;
+
+    (async () => {
+      try {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status !== 'granted') return;
+
+        const physicalId = (globalThis as any).__myPhoneDeviceId;
+        if (!physicalId || devices.length === 0) return;
+
+        const myDevice = devices.find((d) => d.physicalDeviceId === physicalId);
+        if (!myDevice) return;
+
+        locationSub = await Location.watchPositionAsync(
+          {
+            accuracy: Location.Accuracy.Balanced,
+            timeInterval: 30000,
+            distanceInterval: 20,
+          },
+          async (loc) => {
+            try {
+              let locationName: string | undefined;
+              try {
+                const [place] = await Location.reverseGeocodeAsync({
+                  latitude: loc.coords.latitude,
+                  longitude: loc.coords.longitude,
+                });
+                if (place) {
+                  locationName = [place.street, place.city, place.region]
+                    .filter(Boolean)
+                    .join(', ');
+                }
+              } catch (_) {}
+
+              await updateLocation({
+                deviceId: myDevice._id,
+                latitude: loc.coords.latitude,
+                longitude: loc.coords.longitude,
+                locationName,
+              });
+            } catch (e) {
+              console.warn('[Location] updateLocation failed:', e);
+            }
+          }
+        );
+      } catch (e) {
+        console.warn('[Location] watchPositionAsync failed:', e);
+      }
+    })();
+
+    return () => {
+      locationSub?.remove();
+    };
+  }, [devices.length]);
+
+  // Heartbeat every 30s + mark offline on background
   useEffect(() => {
     if (devices.length === 0) return;
 
-    devices.forEach(device => {
+    devices.forEach((device) => {
       heartbeat({ deviceId: device._id }).catch(() => {});
     });
 
     const interval = setInterval(() => {
-      devices.forEach(device => {
+      devices.forEach((device) => {
         heartbeat({ deviceId: device._id }).catch(() => {});
       });
     }, 30000);
 
     const subscription = AppState.addEventListener('change', (state) => {
       if (state === 'background' || state === 'inactive') {
-        devices.forEach(device => {
+        devices.forEach((device) => {
           markOffline({ deviceId: device._id }).catch(() => {});
         });
       } else if (state === 'active') {
-        devices.forEach(device => {
+        devices.forEach((device) => {
           heartbeat({ deviceId: device._id }).catch(() => {});
         });
       }

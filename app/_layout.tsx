@@ -1,14 +1,16 @@
 import 'react-native-get-random-values';
-import { ConvexAuthProvider } from '@convex-dev/auth/react';
-import { useConvexAuth, useMutation } from 'convex/react';
+import { ConvexAuthProvider, useAuthActions } from '@convex-dev/auth/react';
+import { useConvexAuth, useMutation, useQuery } from 'convex/react';
 import { ConvexReactClient } from 'convex/react';
 import * as SecureStore from 'expo-secure-store';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React, { useEffect, useRef, useState } from 'react';
 import { Platform, NativeModules, NativeEventEmitter } from 'react-native';
+import * as Notifications from 'expo-notifications';
 import { api } from '../convex/_generated/api';
 import { colors } from '../src/lib/theme';
+import { getAlarmManager } from '../src/native/AlarmManager';
 import * as Application from 'expo-application';
 
 const convex = new ConvexReactClient(
@@ -23,7 +25,15 @@ const nativeStorage = Platform.OS !== 'web' ? {
 
 function AuthGuard({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, isLoading } = useConvexAuth();
+  const { signOut } = useAuthActions();
+  const currentUser = useQuery(api.auth.currentUser);
   const ensureProfile = useMutation(api.profiles.ensureProfile);
+  const triggerAlarm = useMutation(api.devices.triggerAlarm);
+  const devices = useQuery(api.devices.list) ?? [];
+  const devicesRef = useRef(devices);
+  devicesRef.current = devices;
+  const triggerAlarmRef = useRef(triggerAlarm);
+  triggerAlarmRef.current = triggerAlarm;
   const segments = useSegments();
   const router = useRouter();
   const profileCreated = useRef(false);
@@ -37,8 +47,29 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
     if (!WakeWordModule) return;
 
     const emitter = new NativeEventEmitter(WakeWordModule);
-    const sub = emitter.addListener('WakeWordDetected', () => {
-      router.push('/lockout');
+    const sub = emitter.addListener('WakeWordDetected', async () => {
+      const physicalId = (globalThis as any).__myPhoneDeviceId;
+      const allDevices = devicesRef.current;
+      const myDevice = allDevices.find((d) => d.physicalDeviceId === physicalId) ?? allDevices[0];
+
+      if (myDevice) {
+        try {
+          await triggerAlarmRef.current({ deviceId: myDevice._id });
+        } catch (e) {
+          console.warn('Could not trigger alarm in DB:', e);
+        }
+        getAlarmManager().triggerAlarm(myDevice._id, 'voice');
+        router.push({
+          pathname: '/lockout',
+          params: {
+            deviceId: myDevice._id,
+            deviceName: myDevice.name,
+            deviceType: myDevice.type,
+          },
+        });
+      } else {
+        router.push('/lockout');
+      }
     });
 
     try {
@@ -49,6 +80,66 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
 
     return () => sub.remove();
   }, [isAuthenticated]);
+
+  // ── Incoming push notification listener ──────────────────────────────────
+  useEffect(() => {
+    if (!isAuthenticated) return;
+
+    // Handle push notification received while app is foregrounded
+    const sub = Notifications.addNotificationReceivedListener((notification) => {
+      const data = notification.request.content.data as any;
+      if (data?.type === 'alarm' && data?.deviceId) {
+        const deviceId = data.deviceId as string;
+        const allDevices = devicesRef.current;
+        const device = allDevices.find((d) => d._id === deviceId);
+        getAlarmManager().triggerAlarm(deviceId, 'remote');
+        router.push({
+          pathname: '/lockout',
+          params: {
+            deviceId,
+            deviceName: device?.name ?? 'This Device',
+            deviceType: device?.type ?? 'phone',
+          },
+        });
+      }
+    });
+
+    // Handle tap on push notification when app was backgrounded/killed
+    const tapSub = Notifications.addNotificationResponseReceivedListener((response) => {
+      const data = response.notification.request.content.data as any;
+      if (data?.type === 'alarm' && data?.deviceId) {
+        const deviceId = data.deviceId as string;
+        const allDevices = devicesRef.current;
+        const device = allDevices.find((d) => d._id === deviceId);
+        getAlarmManager().triggerAlarm(deviceId, 'remote');
+        router.push({
+          pathname: '/lockout',
+          params: {
+            deviceId,
+            deviceName: device?.name ?? 'This Device',
+            deviceType: device?.type ?? 'phone',
+          },
+        });
+      }
+    });
+
+    return () => {
+      sub.remove();
+      tapSub.remove();
+    };
+  }, [isAuthenticated]);
+
+  // ── Ghost account eviction ────────────────────────────────────────────────
+  // isAuthenticated can be true with a valid JWT even after the user document
+  // was deleted from the DB. Detect this and force a sign-out so the login
+  // screen is shown with no stale session.
+  useEffect(() => {
+    if (!isAuthenticated || isLoading) return;
+    if (currentUser === undefined) return; // query still loading
+    if (currentUser === null) {
+      signOut();
+    }
+  }, [isAuthenticated, isLoading, currentUser]);
 
   // ── Wake word setup check ─────────────────────────────────────────────────
   useEffect(() => {
@@ -140,6 +231,8 @@ export default function RootLayout() {
           <Stack.Screen name="wake-word-setup" options={{ headerShown: false }} />
           <Stack.Screen name="voice-setup" options={{ headerShown: false, presentation: 'modal' }} />
           <Stack.Screen name="biometric-setup" options={{ headerShown: false, presentation: 'modal' }} />
+          <Stack.Screen name="manage-users" options={{ headerShown: false, presentation: 'modal' }} />
+          <Stack.Screen name="activity-log" options={{ headerShown: false, presentation: 'modal' }} />
         </Stack>
       </AuthGuard>
     </ConvexAuthProvider>
