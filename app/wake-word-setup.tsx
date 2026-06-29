@@ -6,6 +6,8 @@ import {
   NativeModules,
   NativeEventEmitter,
   ActivityIndicator,
+  PermissionsAndroid,
+  Platform,
   Pressable,
 } from 'react-native';
 import { useRouter } from 'expo-router';
@@ -28,6 +30,25 @@ export default function WakeWordSetupScreen() {
         router.replace('/(tabs)');
         return;
       }
+
+      // Android 14 requires RECORD_AUDIO to be granted before startForeground()
+      // can be called with foregroundServiceType="microphone".
+      if (Platform.OS === 'android') {
+        const granted = await PermissionsAndroid.request(
+          PermissionsAndroid.PERMISSIONS.RECORD_AUDIO,
+          {
+            title: 'Microphone Permission',
+            message: 'My-Phone needs microphone access to detect your wake word in the background.',
+            buttonPositive: 'Allow',
+            buttonNegative: 'Skip',
+          }
+        );
+        if (granted !== PermissionsAndroid.RESULTS.GRANTED) {
+          router.replace('/(tabs)');
+          return;
+        }
+      }
+
       const ready = await WakeWordModule.isModelReady();
       if (ready) {
         setStatus('ready');
