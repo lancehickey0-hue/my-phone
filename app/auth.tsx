@@ -1,4 +1,5 @@
 import { useAuthActions } from '@convex-dev/auth/react';
+import * as SecureStore from 'expo-secure-store';
 import React, { useState } from 'react';
 import {
   Alert,
@@ -13,6 +14,18 @@ import {
   View,
 } from 'react-native';
 import { borderRadius, colors, fontSize, spacing } from '../src/lib/theme';
+
+const CONVEX_URL = process.env.EXPO_PUBLIC_CONVEX_URL || 'https://cheery-buffalo-947.convex.cloud';
+const STORAGE_NS = CONVEX_URL.replace(/[^a-zA-Z0-9]/g, '');
+const REFRESH_KEY = `__convexAuthRefreshToken_${STORAGE_NS}`;
+const JWT_KEY = `__convexAuthJWT_${STORAGE_NS}`;
+
+async function clearStaleTokens() {
+  await Promise.allSettled([
+    SecureStore.deleteItemAsync(REFRESH_KEY),
+    SecureStore.deleteItemAsync(JWT_KEY),
+  ]);
+}
 
 export default function AuthScreen() {
   const { signIn } = useAuthActions();
@@ -43,7 +56,17 @@ export default function AuthScreen() {
       if (mode === 'signup') {
         payload.name = name.trim();
       }
-      await signIn('password', payload);
+      try {
+        await signIn('password', payload);
+      } catch (e: any) {
+        if (e.message?.includes('Invalid refresh token') || e.message?.includes('refresh token')) {
+          // Stale token from a previous session — clear it and retry once
+          await clearStaleTokens();
+          await signIn('password', payload);
+        } else {
+          throw e;
+        }
+      }
     } catch (e: any) {
       const errorMsg = e.message || 'Failed to sign in. Please try again.';
       setError(errorMsg);
