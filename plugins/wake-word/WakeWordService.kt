@@ -29,7 +29,13 @@ class WakeWordService : Service() {
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
-        startForeground(NOTIFICATION_ID, buildNotification())
+        try {
+            startForeground(NOTIFICATION_ID, buildNotification())
+        } catch (e: Throwable) {
+            Log.e(TAG, "startForeground failed (missing RECORD_AUDIO?): " + e.message)
+            stopSelf()
+            return
+        }
         try {
             initVosk()
         } catch (e: Throwable) {
@@ -37,14 +43,25 @@ class WakeWordService : Service() {
         }
     }
 
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (!isRunning) {
+            try {
+                initVosk()
+            } catch (e: Throwable) {
+                Log.e(TAG, "Vosk re-init failed: " + e.message)
+            }
+        }
+        return START_STICKY
+    }
+
     private fun initVosk() {
         Thread {
             try {
-                val modelDir = File(filesDir, "vosk-model")
-                if (!modelDir.exists() || modelDir.list().isNullOrEmpty()) {
-                    Log.w(TAG, "Vosk model not downloaded yet - service will wait")
+                if (!VoskModelManager.isModelReady(this)) {
+                    Log.w(TAG, "Vosk model not ready yet - service will wait")
                     return@Thread
                 }
+                val modelDir = File(filesDir, "vosk-model")
                 voskHandler = VoskHandler(this, modelDir.absolutePath, WAKE_PHRASES) {
                     emitWakeWordDetected()
                 }
