@@ -72,12 +72,6 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
       }
     });
 
-    try {
-      WakeWordModule.startService();
-    } catch (e) {
-      console.warn('Could not start WakeWordService:', e);
-    }
-
     return () => sub.remove();
   }, [isAuthenticated]);
 
