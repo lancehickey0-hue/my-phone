@@ -13,7 +13,7 @@ import {
 import MapView, { Marker, Circle } from 'react-native-maps';
 import { api } from '../../convex/_generated/api';
 import { deviceEmojis, type DeviceType } from '../../src/lib/deviceIcons';
-import { borderRadius, colors, fontSize, spacing } from '../../src/lib/theme';
+import { borderRadius, colors, spacing } from '../../src/lib/theme';
 import type { Id } from '../../convex/_generated/dataModel';
 
 type RemoteAction = 'alarm' | 'lock' | 'unlock' | 'stop_alarm';
@@ -60,7 +60,7 @@ export default function MapTab() {
     } finally {
       setActionLoading(null);
     }
-  }, [selectedDeviceId]);
+  }, [selectedDeviceId, triggerAlarm, stopAlarm, lockDevice, unlockDevice]);
 
   const handleDirections = useCallback(() => {
     if (!selectedDevice?.lastLatitude || !selectedDevice?.lastLongitude) {
@@ -138,11 +138,11 @@ export default function MapTab() {
       </MapView>
 
       {/* Badges overlay */}
-      <View style={styles.trackingBadge} pointerEvents="none">
+      <View style={[styles.trackingBadge, { pointerEvents: 'none' }]}>
         <View style={styles.trackingDot} />
         <Text style={styles.trackingText}>LIVE</Text>
       </View>
-      <View style={styles.countBadge} pointerEvents="none">
+      <View style={[styles.countBadge, { pointerEvents: 'none' }]}>
         <Text style={styles.countText}>
           {devicesWithLocation.length}/{devices.length} located
         </Text>
