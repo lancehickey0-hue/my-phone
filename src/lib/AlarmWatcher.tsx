@@ -2,7 +2,7 @@ import React, { useEffect, useRef } from 'react';
 import { useRouter } from 'expo-router';
 import { useQuery } from 'convex/react';
 import { api } from '../../convex/_generated/api';
-import { getAlarmManager } from './AlarmManager';
+import { getAlarmManager } from '../native/AlarmManager';
 
 export function AlarmWatcher() {
   const devices = useQuery(api.devices.list) ?? [];
