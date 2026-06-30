@@ -151,13 +151,18 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
 
     if (inWakeWordSetup || inLockout || inAuth) return;
 
-    // Small delay to let router settle
-    const timer = setTimeout(() => {
-      setSetupChecked(true);
-      router.replace('/wake-word-setup');
-    }, 500);
-
-    return () => clearTimeout(timer);
+    // Skip redirect if the user already completed setup in a previous launch
+    SecureStore.getItemAsync('wake_word_setup_done').then((done) => {
+      if (done === 'true') {
+        setSetupChecked(true);
+        return;
+      }
+      const timer = setTimeout(() => {
+        setSetupChecked(true);
+        router.replace('/wake-word-setup');
+      }, 500);
+      // No cleanup possible here, but the setupChecked guard prevents re-runs
+    });
   }, [isAuthenticated, segments, setupChecked]);
 
   // ── Auth routing ──────────────────────────────────────────────────────────
@@ -166,6 +171,7 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
 
     if (!isAuthenticated) {
       profileCreated.current = false;
+      deviceRegistered.current = false;
       setSetupChecked(false);
       router.replace('/auth');
       return;

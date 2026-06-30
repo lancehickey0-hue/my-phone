@@ -8,7 +8,6 @@
  * @module
  */
 
-import type * as ViktorSpacesEmail from "../ViktorSpacesEmail.js";
 import type * as activityLog from "../activityLog.js";
 import type * as auth from "../auth.js";
 import type * as billing from "../billing.js";
@@ -27,7 +26,6 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
-  ViktorSpacesEmail: typeof ViktorSpacesEmail;
   activityLog: typeof activityLog;
   auth: typeof auth;
   billing: typeof billing;

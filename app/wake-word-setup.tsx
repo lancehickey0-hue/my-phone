@@ -1,3 +1,4 @@
+import * as SecureStore from 'expo-secure-store';
 import React, { useEffect, useState } from 'react';
 import {
   View,
@@ -53,15 +54,17 @@ export default function WakeWordSetupScreen() {
       if (ready) {
         setStatus('ready');
         WakeWordModule.startService();
+        await SecureStore.setItemAsync('wake_word_setup_done', 'true');
         setTimeout(() => router.replace('/(tabs)'), 1000);
       } else {
         setStatus('downloading');
         const emitter = new NativeEventEmitter(WakeWordModule);
         const progressSub = emitter.addListener('VoskDownloadProgress', (p: number) => setProgress(p));
         WakeWordModule.downloadModel()
-          .then(() => {
+          .then(async () => {
             progressSub.remove();
             setStatus('ready');
+            await SecureStore.setItemAsync('wake_word_setup_done', 'true');
             setTimeout(() => router.replace('/(tabs)'), 1500);
           })
           .catch((err: { message: string }) => {
