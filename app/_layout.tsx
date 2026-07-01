@@ -13,10 +13,6 @@ import { colors } from '../src/lib/theme';
 import { getAlarmManager } from '../src/native/AlarmManager';
 import * as Application from 'expo-application';
 
-const convex = new ConvexReactClient(
-  process.env.EXPO_PUBLIC_CONVEX_URL || 'https://cheery-buffalo-947.convex.cloud'
-);
-
 const nativeStorage = Platform.OS !== 'web' ? {
   getItem: SecureStore.getItemAsync,
   setItem: SecureStore.setItemAsync,
