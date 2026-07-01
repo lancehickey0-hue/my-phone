@@ -1,8 +1,8 @@
 import { useMutation, useQuery } from 'convex/react';
-import React, { useCallback, useRef, useState } from 'react';
+import * as Location from 'expo-location';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Alert,
-  Linking,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -10,13 +10,128 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import MapView, { Marker, Circle } from 'react-native-maps';
+import { WebView } from 'react-native-webview';
 import { api } from '../../convex/_generated/api';
 import { deviceEmojis, type DeviceType } from '../../src/lib/deviceIcons';
 import { borderRadius, colors, spacing } from '../../src/lib/theme';
 import type { Id } from '../../convex/_generated/dataModel';
 
 type RemoteAction = 'alarm' | 'lock' | 'unlock' | 'stop_alarm';
+
+const MAP_HTML = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <style>
+    html, body, #map { height: 100%; margin: 0; padding: 0; background: #0d0d12; }
+    .device-pin {
+      width: 40px; height: 40px; border-radius: 20px;
+      background: #17171f; border: 2px solid #d4af37;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 18px; box-shadow: 0 2px 6px rgba(0,0,0,0.5);
+    }
+    .device-pin.alarm { border-color: #ef4444; background: rgba(239,68,68,0.15); }
+    .device-pin.selected { border-width: 3px; border-color: #d4af37; transform: scale(1.15); }
+    .leaflet-control-attribution { font-size: 9px; }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script>
+    const map = L.map('map', { zoomControl: true }).setView([37.7749, -122.4194], 4);
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+      attribution: '&copy; OpenStreetMap &copy; CARTO',
+      subdomains: 'abcd',
+      maxZoom: 19,
+    }).addTo(map);
+
+    let markers = {};
+    let routeLine = null;
+    let userMarker = null;
+
+    function post(msg) {
+      window.ReactNativeWebView.postMessage(JSON.stringify(msg));
+    }
+
+    function updateMarkers(devices) {
+      const seen = new Set();
+      devices.forEach(function(d) {
+        if (d.lat == null || d.lng == null) return;
+        seen.add(d.id);
+        const icon = L.divIcon({
+          className: '',
+          html: '<div class="device-pin' + (d.alarm ? ' alarm' : '') + (d.selected ? ' selected' : '') + '">' + d.emoji + '</div>',
+          iconSize: [40, 40],
+          iconAnchor: [20, 20],
+        });
+        if (markers[d.id]) {
+          markers[d.id].setLatLng([d.lat, d.lng]);
+          markers[d.id].setIcon(icon);
+        } else {
+          const m = L.marker([d.lat, d.lng], { icon: icon }).addTo(map);
+          m.on('click', function() { post({ type: 'selectDevice', deviceId: d.id }); });
+          markers[d.id] = m;
+        }
+      });
+      Object.keys(markers).forEach(function(id) {
+        if (!seen.has(id)) { map.removeLayer(markers[id]); delete markers[id]; }
+      });
+    }
+
+    function centerOn(lat, lng, zoom) {
+      map.setView([lat, lng], zoom || 15, { animate: true });
+    }
+
+    function fitAll(points) {
+      if (!points.length) return;
+      const bounds = L.latLngBounds(points.map(function(p) { return [p.lat, p.lng]; }));
+      map.fitBounds(bounds, { padding: [40, 40] });
+    }
+
+    function setUserLocation(lat, lng) {
+      if (userMarker) {
+        userMarker.setLatLng([lat, lng]);
+      } else {
+        userMarker = L.circleMarker([lat, lng], {
+          radius: 7, color: '#3b82f6', fillColor: '#3b82f6', fillOpacity: 0.8, weight: 2,
+        }).addTo(map);
+      }
+    }
+
+    function drawRoute(coords) {
+      if (routeLine) { map.removeLayer(routeLine); routeLine = null; }
+      if (!coords || !coords.length) return;
+      routeLine = L.polyline(coords, { color: '#8B5CF6', weight: 4, opacity: 0.85 }).addTo(map);
+      map.fitBounds(routeLine.getBounds(), { padding: [50, 50] });
+    }
+
+    function clearRoute() {
+      if (routeLine) { map.removeLayer(routeLine); routeLine = null; }
+    }
+
+    document.addEventListener('message', function(e) { handleMessage(e.data); });
+    window.addEventListener('message', function(e) { handleMessage(e.data); });
+
+    function handleMessage(data) {
+      try {
+        const msg = JSON.parse(data);
+        if (msg.type === 'updateMarkers') updateMarkers(msg.devices);
+        else if (msg.type === 'centerOn') centerOn(msg.lat, msg.lng, msg.zoom);
+        else if (msg.type === 'fitAll') fitAll(msg.points);
+        else if (msg.type === 'setUserLocation') setUserLocation(msg.lat, msg.lng);
+        else if (msg.type === 'drawRoute') drawRoute(msg.coords);
+        else if (msg.type === 'clearRoute') clearRoute();
+      } catch (err) {}
+    }
+
+    post({ type: 'ready' });
+  </script>
+</body>
+</html>
+`;
 
 export default function MapTab() {
   const devices = useQuery(api.devices.list) ?? [];
@@ -27,23 +142,76 @@ export default function MapTab() {
 
   const [selectedDeviceId, setSelectedDeviceId] = useState<Id<'devices'> | null>(null);
   const [actionLoading, setActionLoading] = useState<RemoteAction | null>(null);
-  const mapRef = useRef<MapView>(null);
+  const [mapReady, setMapReady] = useState(false);
+  const [userLocation, setUserLocation] = useState<{ latitude: number; longitude: number } | null>(null);
+  const webviewRef = useRef<WebView>(null);
 
   const selectedDevice = devices.find((d) => d._id === selectedDeviceId);
   const devicesWithLocation = devices.filter((d) => d.lastLatitude && d.lastLongitude);
 
+  const sendToMap = useCallback((msg: object) => {
+    webviewRef.current?.injectJavaScript(
+      `handleMessage(${JSON.stringify(JSON.stringify(msg))}); true;`
+    );
+  }, []);
+
+  // Get user's own location once, for the blue dot + routing origin
+  useEffect(() => {
+    (async () => {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') return;
+      const pos = await Location.getCurrentPositionAsync({});
+      setUserLocation({ latitude: pos.coords.latitude, longitude: pos.coords.longitude });
+    })();
+  }, []);
+
+  useEffect(() => {
+    if (mapReady && userLocation) {
+      sendToMap({ type: 'setUserLocation', lat: userLocation.latitude, lng: userLocation.longitude });
+    }
+  }, [mapReady, userLocation, sendToMap]);
+
+  // Push device markers into the map whenever devices or selection changes
+  useEffect(() => {
+    if (!mapReady) return;
+    sendToMap({
+      type: 'updateMarkers',
+      devices: devicesWithLocation.map((d) => ({
+        id: d._id,
+        lat: d.lastLatitude,
+        lng: d.lastLongitude,
+        emoji: deviceEmojis[d.type as DeviceType],
+        alarm: d.isAlarmActive,
+        selected: d._id === selectedDeviceId,
+      })),
+    });
+  }, [mapReady, devicesWithLocation, selectedDeviceId, sendToMap]);
+
+  // Initial fit-to-bounds once markers first load
+  useEffect(() => {
+    if (mapReady && devicesWithLocation.length > 0) {
+      sendToMap({
+        type: 'fitAll',
+        points: devicesWithLocation.map((d) => ({ lat: d.lastLatitude, lng: d.lastLongitude })),
+      });
+    }
+  }, [mapReady, devicesWithLocation.length]);
+
   const handleSelectDevice = useCallback((deviceId: Id<'devices'>) => {
     setSelectedDeviceId(deviceId);
     const device = devices.find((d) => d._id === deviceId);
-    if (device?.lastLatitude && device?.lastLongitude && mapRef.current) {
-      mapRef.current.animateToRegion({
-        latitude: device.lastLatitude,
-        longitude: device.lastLongitude,
-        latitudeDelta: 0.01,
-        longitudeDelta: 0.01,
-      }, 600);
+    if (device?.lastLatitude && device?.lastLongitude) {
+      sendToMap({ type: 'centerOn', lat: device.lastLatitude, lng: device.lastLongitude, zoom: 16 });
     }
-  }, [devices]);
+  }, [devices, sendToMap]);
+
+  const handleWebViewMessage = useCallback((event: { nativeEvent: { data: string } }) => {
+    try {
+      const msg = JSON.parse(event.nativeEvent.data);
+      if (msg.type === 'ready') setMapReady(true);
+      else if (msg.type === 'selectDevice') handleSelectDevice(msg.deviceId);
+    } catch {}
+  }, [handleSelectDevice]);
 
   const handleAction = useCallback(async (action: RemoteAction) => {
     if (!selectedDeviceId) return;
@@ -62,17 +230,31 @@ export default function MapTab() {
     }
   }, [selectedDeviceId, triggerAlarm, stopAlarm, lockDevice, unlockDevice]);
 
-  const handleDirections = useCallback(() => {
+  // Free OSRM routing — walking directions from user's location to the device
+  const handleDirections = useCallback(async () => {
     if (!selectedDevice?.lastLatitude || !selectedDevice?.lastLongitude) {
       Alert.alert('No Location', 'This device has no location data yet.');
       return;
     }
-    const { lastLatitude: lat, lastLongitude: lng, name } = selectedDevice;
-    const url = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}&travelmode=walking`;
-    Linking.openURL(url).catch(() =>
-      Linking.openURL(`geo:${lat},${lng}?q=${lat},${lng}(${encodeURIComponent(name)})`)
-    );
-  }, [selectedDevice]);
+    if (!userLocation) {
+      Alert.alert('Location Needed', 'Enable location permissions to get walking directions.');
+      return;
+    }
+    try {
+      const url = `https://router.project-osrm.org/route/v1/foot/${userLocation.longitude},${userLocation.latitude};${selectedDevice.lastLongitude},${selectedDevice.lastLatitude}?overview=full&geometries=geojson`;
+      const res = await fetch(url);
+      const data = await res.json();
+      const coords = data?.routes?.[0]?.geometry?.coordinates;
+      if (!coords) {
+        Alert.alert('No Route Found', 'Could not calculate a walking route.');
+        return;
+      }
+      const latLngCoords = coords.map(([lng, lat]: [number, number]) => [lat, lng]);
+      sendToMap({ type: 'drawRoute', coords: latLngCoords });
+    } catch {
+      Alert.alert('Error', 'Failed to fetch directions. Check your connection.');
+    }
+  }, [selectedDevice, userLocation, sendToMap]);
 
   const formatLastSeen = (ts?: number) => {
     if (!ts) return 'Never';
@@ -83,74 +265,33 @@ export default function MapTab() {
     return `${Math.floor(diff / 86_400_000)}d ago`;
   };
 
-  // Default region — US center, or first device with location
-  const initialRegion = devicesWithLocation[0]
-    ? {
-        latitude: devicesWithLocation[0].lastLatitude!,
-        longitude: devicesWithLocation[0].lastLongitude!,
-        latitudeDelta: 0.05,
-        longitudeDelta: 0.05,
-      }
-    : { latitude: 37.7749, longitude: -122.4194, latitudeDelta: 10, longitudeDelta: 10 };
-
   return (
     <View style={styles.container}>
-      {/* ─── Real Map ─────────────────────────────────────────────── */}
-      <MapView
-        ref={mapRef}
-        style={styles.map}
-        initialRegion={initialRegion}
-        customMapStyle={darkMapStyle}
-        showsUserLocation
-        showsMyLocationButton
-      >
-        {devicesWithLocation.map((device) => (
-          <React.Fragment key={device._id}>
-            <Marker
-              coordinate={{
-                latitude: device.lastLatitude!,
-                longitude: device.lastLongitude!,
-              }}
-              onPress={() => handleSelectDevice(device._id)}
-              title={device.name}
-              description={device.isAlarmActive ? '🔔 ALARM ACTIVE' : formatLastSeen(device.lastSeenAt)}
-            >
-              <View style={[
-                styles.markerBubble,
-                device.isAlarmActive && styles.markerBubbleAlarm,
-                device._id === selectedDeviceId && styles.markerBubbleSelected,
-              ]}>
-                <Text style={styles.markerEmoji}>{deviceEmojis[device.type as DeviceType]}</Text>
-              </View>
-            </Marker>
+      {/* ─── Interactive Map ──────────────────────────────────────── */}
+      <View style={styles.mapContainer}>
+        <WebView
+          ref={webviewRef}
+          source={{ html: MAP_HTML }}
+          style={styles.map}
+          onMessage={handleWebViewMessage}
+          javaScriptEnabled
+          domStorageEnabled
+          originWhitelist={['*']}
+        />
 
-            {device.isAlarmActive && (
-              <Circle
-                center={{ latitude: device.lastLatitude!, longitude: device.lastLongitude! }}
-                radius={80}
-                fillColor="rgba(239,68,68,0.12)"
-                strokeColor="rgba(239,68,68,0.5)"
-                strokeWidth={2}
-              />
-            )}
-          </React.Fragment>
-        ))}
-      </MapView>
-
-      {/* Badges overlay */}
-      <View style={[styles.trackingBadge, { pointerEvents: 'none' }]}>
-        <View style={styles.trackingDot} />
-        <Text style={styles.trackingText}>LIVE</Text>
-      </View>
-      <View style={[styles.countBadge, { pointerEvents: 'none' }]}>
-        <Text style={styles.countText}>
-          {devicesWithLocation.length}/{devices.length} located
-        </Text>
+        <View style={[styles.trackingBadge, { pointerEvents: 'none' }]}>
+          <View style={styles.trackingDot} />
+          <Text style={styles.trackingText}>LIVE</Text>
+        </View>
+        <View style={[styles.countBadge, { pointerEvents: 'none' }]}>
+          <Text style={styles.countText}>
+            {devicesWithLocation.length}/{devices.length} located
+          </Text>
+        </View>
       </View>
 
       {/* ─── Bottom Panel ─────────────────────────────────────────── */}
       <ScrollView style={styles.bottomPanel} contentContainerStyle={styles.bottomContent}>
-        {/* Device chips */}
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipScroll}>
           <View style={styles.chipRow}>
             {devices.map((device) => (
@@ -173,7 +314,6 @@ export default function MapTab() {
           </View>
         </ScrollView>
 
-        {/* Selected device controls */}
         {selectedDevice && (
           <View style={styles.controlCard}>
             <View style={styles.controlHeader}>
@@ -239,12 +379,7 @@ export default function MapTab() {
                 loading={false}
                 onPress={() => {
                   if (selectedDevice.lastLatitude && selectedDevice.lastLongitude) {
-                    mapRef.current?.animateToRegion({
-                      latitude: selectedDevice.lastLatitude,
-                      longitude: selectedDevice.lastLongitude,
-                      latitudeDelta: 0.005,
-                      longitudeDelta: 0.005,
-                    }, 600);
+                    sendToMap({ type: 'centerOn', lat: selectedDevice.lastLatitude, lng: selectedDevice.lastLongitude, zoom: 16 });
                   } else {
                     Alert.alert('No Location', 'This device has no location data yet.');
                   }
@@ -320,17 +455,8 @@ const actionStyles = StyleSheet.create({
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bgPrimary },
 
-  map: { height: '44%' },
-
-  markerBubble: {
-    width: 44, height: 44, borderRadius: 22,
-    backgroundColor: colors.bgCard,
-    borderWidth: 2, borderColor: colors.goldBorder,
-    alignItems: 'center', justifyContent: 'center',
-  },
-  markerBubbleAlarm: { borderColor: colors.danger, backgroundColor: colors.dangerDim },
-  markerBubbleSelected: { borderColor: colors.gold, borderWidth: 3, transform: [{ scale: 1.2 }] },
-  markerEmoji: { fontSize: 20 },
+  mapContainer: { height: '44%' },
+  map: { flex: 1, backgroundColor: '#0d0d12' },
 
   trackingBadge: {
     position: 'absolute', top: 16, left: 16,
@@ -378,15 +504,3 @@ const styles = StyleSheet.create({
   selectPrompt: { backgroundColor: colors.bgCard, borderRadius: borderRadius.md, padding: 24, alignItems: 'center', borderWidth: 1, borderColor: colors.border },
   selectPromptText: { fontSize: 14, color: colors.textMuted, textAlign: 'center' },
 });
-
-const darkMapStyle = [
-  { elementType: 'geometry', stylers: [{ color: '#0d0d12' }] },
-  { elementType: 'labels.text.fill', stylers: [{ color: '#71717a' }] },
-  { elementType: 'labels.text.stroke', stylers: [{ color: '#06060a' }] },
-  { featureType: 'road', elementType: 'geometry', stylers: [{ color: '#1a1a24' }] },
-  { featureType: 'road', elementType: 'geometry.stroke', stylers: [{ color: '#13131a' }] },
-  { featureType: 'road.highway', elementType: 'geometry', stylers: [{ color: '#252530' }] },
-  { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#040408' }] },
-  { featureType: 'poi', stylers: [{ visibility: 'off' }] },
-  { featureType: 'transit', stylers: [{ visibility: 'off' }] },
-];
