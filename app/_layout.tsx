@@ -75,6 +75,54 @@ updateLocationRef.current = updateLocation;
     return () => sub.remove();
   }, [isAuthenticated]);
 
+// ── Real-time location tracking ───────────────────────────────────────────
+useEffect(() => {
+  if (!isAuthenticated) return;
+  let subscription: Location.LocationSubscription | null = null;
+  let cancelled = false;
+
+  (async () => {
+    const { status: fgStatus } = await Location.requestForegroundPermissionsAsync();
+    if (fgStatus !== 'granted') {
+      console.warn('[LocationTracking] Foreground permission denied');
+      return;
+    }
+
+    await Location.requestBackgroundPermissionsAsync();
+
+    if (cancelled) return;
+
+    subscription = await Location.watchPositionAsync(
+      {
+        accuracy: Location.Accuracy.Balanced,
+        timeInterval: 30_000,
+        distanceInterval: 25,
+      },
+      async (position) => {
+        const physicalId = (globalThis as any).__myPhoneDeviceId;
+        const allDevices = devicesRef.current;
+        const myDevice = allDevices.find((d) => d.physicalDeviceId === physicalId) ?? allDevices[0];
+        if (!myDevice) return;
+
+        try {
+          await updateLocationRef.current({
+            deviceId: myDevice._id,
+            latitude: position.coords.latitude,
+            longitude: position.coords.longitude,
+          });
+        } catch (e) {
+          console.warn('[LocationTracking] Failed to update location:', e);
+        }
+      }
+    );
+  })();
+
+  return () => {
+    cancelled = true;
+    subscription?.remove();
+  };
+}, [isAuthenticated]);
+
   // ── Incoming push notification listener ──────────────────────────────────
   useEffect(() => {
     if (!isAuthenticated) return;
