@@ -1,7 +1,7 @@
 import 'react-native-get-random-values';
 import { ConvexAuthProvider, useAuthActions } from '@convex-dev/auth/react';
 import { useConvexAuth, useMutation, useQuery } from 'convex/react';
-import { ConvexReactClient } from 'convex/react';
+import { convex } from '../src/lib/convex';
 import * as SecureStore from 'expo-secure-store';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
