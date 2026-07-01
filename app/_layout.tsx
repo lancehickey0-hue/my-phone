@@ -36,6 +36,9 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
   const profileCreated = useRef(false);
   const deviceRegistered = useRef(false);
   const [setupChecked, setSetupChecked] = useState(false);
+  const updateLocation = useMutation(api.devices.updateLocation);
+  const updateLocationRef = useRef(updateLocation);
+updateLocationRef.current = updateLocation;
 
   // ── Wake word listener ────────────────────────────────────────────────────
   useEffect(() => {
