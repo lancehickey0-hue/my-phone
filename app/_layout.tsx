@@ -12,6 +12,7 @@ import { api } from '../convex/_generated/api';
 import { colors } from '../src/lib/theme';
 import { getAlarmManager } from '../src/native/AlarmManager';
 import * as Application from 'expo-application';
+import * as Location from 'expo-location';
 
 const nativeStorage = Platform.OS !== 'web' ? {
   getItem: SecureStore.getItemAsync,
