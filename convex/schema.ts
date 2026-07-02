@@ -105,6 +105,14 @@ const schema = defineSchema({
   })
     .index("by_userId", ["userId"])
     .index("by_deviceId", ["deviceId"]),
+
+// Diagnostic logs from native code (wake word debugging, etc.)
+  debugLogs: defineTable({
+    source: v.string(), // e.g. "WakeWordService"
+    message: v.string(),
+    timestamp: v.number(),
+  })
+    .index("by_timestamp", ["timestamp"]),
 });
 
 export default schema;
