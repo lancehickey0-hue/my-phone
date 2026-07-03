@@ -162,8 +162,9 @@ useEffect(() => {
     clearInterval(interval);
     subscription.remove();
   };
-}, [devices.length]);
+ }, [devices.length]);
 
+ return null;
 }
 
 export default function TabsLayout() {
