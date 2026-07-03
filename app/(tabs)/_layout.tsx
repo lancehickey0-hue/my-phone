@@ -75,15 +75,23 @@ function HeartbeatManager() {
   // GPS location tracking — update this device's location in Convex
   useEffect(() => {
     let locationSub: Location.LocationSubscription | null = null;
+    let cancelled = false;
 
     (async () => {
+      let physicalId = (globalThis as any).__myPhoneDeviceId;
+      let attempts = 0;
+      while (!physicalId && attempts < 20 && !cancelled) {
+        await new Promise((r) => setTimeout(r, 500));
+        physicalId = (globalThis as any).__myPhoneDeviceId;
+        attempts++;
+      }
+      if (!physicalId || cancelled) return;
+
       try {
         const { status } = await Location.requestForegroundPermissionsAsync();
         if (status !== 'granted') return;
 
-        const physicalId = (globalThis as any).__myPhoneDeviceId;
-        if (!physicalId || devices.length === 0) return;
-
+        if (devices.length === 0) return;
         const myDevice = devices.find((d) => d.physicalDeviceId === physicalId);
         if (!myDevice) return;
 
@@ -125,6 +133,7 @@ function HeartbeatManager() {
     })();
 
     return () => {
+      cancelled = true;
       locationSub?.remove();
     };
   }, [devices.length]);
