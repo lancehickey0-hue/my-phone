@@ -164,13 +164,6 @@ useEffect(() => {
   };
 }, [devices.length]);
 
-  return () => {
-      cancelled = true;
-      locationSub?.remove();
-    };
-  }, [devices.length]);
-
-  return null;
 }
 
 export default function TabsLayout() {
