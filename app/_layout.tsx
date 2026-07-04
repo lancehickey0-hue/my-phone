@@ -1,7 +1,7 @@
 import 'react-native-get-random-values';
 import { ConvexAuthProvider, useAuthActions } from '@convex-dev/auth/react';
 import { useConvexAuth, useMutation, useQuery } from 'convex/react';
-import { ConvexReactClient } from 'convex/react';
+import { convex } from '../src/lib/convex';
 import * as SecureStore from 'expo-secure-store';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
@@ -12,10 +12,6 @@ import { api } from '../convex/_generated/api';
 import { colors } from '../src/lib/theme';
 import { getAlarmManager } from '../src/native/AlarmManager';
 import * as Application from 'expo-application';
-
-const convex = new ConvexReactClient(
-  process.env.EXPO_PUBLIC_CONVEX_URL || 'https://cheery-buffalo-947.convex.cloud'
-);
 
 const nativeStorage = Platform.OS !== 'web' ? {
   getItem: SecureStore.getItemAsync,

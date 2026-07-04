@@ -1,6 +1,7 @@
 package com.myphone.app
 
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Build
 import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.module.annotations.ReactModule
@@ -77,9 +78,9 @@ class WakeWordModule(private val reactContext: ReactApplicationContext) :
     fun removeListeners(count: Int) {}
 
     override fun onHostResume() {
-        if (VoskModelManager.isModelReady(reactContext)) {
-            startService()
-        }
+        if (!VoskModelManager.isModelReady(reactContext)) return
+        if (reactContext.checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) return
+        startService()
     }
 
     override fun onHostPause() {}

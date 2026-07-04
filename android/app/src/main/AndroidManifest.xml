@@ -39,6 +39,7 @@
         <category android:name="android.intent.category.BROWSABLE"/>
         <data android:scheme="myphone"/>
         <data android:scheme="com.myphone.app"/>
+        <data android:scheme="exp+my-phone"/>
       </intent-filter>
     </activity>
     <receiver android:name=".BootReceiver" android:enabled="true" android:exported="true">
