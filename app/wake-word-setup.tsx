@@ -48,6 +48,18 @@ export default function WakeWordSetupScreen() {
           router.replace('/(tabs)');
           return;
         }
+
+        // Needed so the wake word service can detect and yield to phone calls
+        // instead of holding the microphone during them.
+        await PermissionsAndroid.request(
+          PermissionsAndroid.PERMISSIONS.READ_PHONE_STATE,
+          {
+            title: 'Phone State Permission',
+            message: 'My-Phone needs this to pause voice detection during calls.',
+            buttonPositive: 'Allow',
+            buttonNegative: 'Skip',
+          }
+        );
       }
 
       const ready = await WakeWordModule.isModelReady();

@@ -9,6 +9,9 @@ import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
+import android.telephony.PhoneStateListener
+import android.telephony.TelephonyCallback
+import android.telephony.TelephonyManager
 import android.util.Log
 import com.facebook.react.ReactApplication
 import com.facebook.react.modules.core.DeviceEventManagerModule
@@ -38,7 +41,12 @@ class WakeWordService : Service() {
 
     private var voskHandler: VoskHandler? = null
     private var isRunning = false
+    private var pausedForCall = false
     private val logExecutor = Executors.newSingleThreadExecutor()
+
+    private var telephonyManager: TelephonyManager? = null
+    private var legacyPhoneStateListener: PhoneStateListener? = null
+    private var modernTelephonyCallback: TelephonyCallback? = null
 
     private fun logToFile(message: String) {
         try {
@@ -106,6 +114,7 @@ class WakeWordService : Service() {
             stopSelf()
             return
         }
+        registerCallStateWatcher()
         try {
             initVosk()
         } catch (e: Throwable) {
@@ -115,7 +124,7 @@ class WakeWordService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         log("onStartCommand() called, isRunning=$isRunning")
-        if (!isRunning) {
+        if (!isRunning && !pausedForCall) {
             try {
                 initVosk()
             } catch (e: Throwable) {
@@ -123,6 +132,90 @@ class WakeWordService : Service() {
             }
         }
         return START_STICKY
+    }
+
+    // ── Call-state awareness ────────────────────────────────────────────────
+    // Vosk's SpeechService holds an active AudioRecord on the microphone the
+    // entire time it's listening. If that's left running during a phone call,
+    // it competes with the telephony audio path and can prevent the other
+    // party from hearing the user. We must release the mic the moment a call
+    // starts, and only resume listening once the call has fully ended.
+    private fun registerCallStateWatcher() {
+        if (checkSelfPermission(android.Manifest.permission.READ_PHONE_STATE) != PackageManager.PERMISSION_GRANTED) {
+            log("READ_PHONE_STATE not granted — cannot watch call state, wake word will NOT pause during calls")
+            return
+        }
+
+        telephonyManager = getSystemService(TELEPHONY_SERVICE) as? TelephonyManager
+        if (telephonyManager == null) {
+            log("TelephonyManager unavailable — cannot watch call state")
+            return
+        }
+
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                val callback = object : TelephonyCallback(), TelephonyCallback.CallStateListener {
+                    override fun onCallStateChanged(state: Int) {
+                        handleCallStateChanged(state)
+                    }
+                }
+                modernTelephonyCallback = callback
+                telephonyManager?.registerTelephonyCallback(mainExecutor, callback)
+                log("Registered modern TelephonyCallback for call state")
+            } else {
+                @Suppress("DEPRECATION")
+                val listener = object : PhoneStateListener() {
+                    @Suppress("DEPRECATION", "OVERRIDE_DEPRECATION")
+                    override fun onCallStateChanged(state: Int, phoneNumber: String?) {
+                        handleCallStateChanged(state)
+                    }
+                }
+                legacyPhoneStateListener = listener
+                @Suppress("DEPRECATION")
+                telephonyManager?.listen(listener, PhoneStateListener.LISTEN_CALL_STATE)
+                log("Registered legacy PhoneStateListener for call state")
+            }
+        } catch (e: Throwable) {
+            log("Failed to register call state watcher: " + e.message)
+        }
+    }
+
+    private fun unregisterCallStateWatcher() {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                modernTelephonyCallback?.let { telephonyManager?.unregisterTelephonyCallback(it) }
+            } else {
+                @Suppress("DEPRECATION")
+                legacyPhoneStateListener?.let { telephonyManager?.listen(it, PhoneStateListener.LISTEN_NONE) }
+            }
+        } catch (e: Throwable) {
+            log("Failed to unregister call state watcher: " + e.message)
+        }
+    }
+
+    private fun handleCallStateChanged(state: Int) {
+        val isCallActiveOrRinging =
+            state == TelephonyManager.CALL_STATE_OFFHOOK || state == TelephonyManager.CALL_STATE_RINGING
+
+        if (isCallActiveOrRinging && isRunning) {
+            log("Call detected (state=$state) — pausing wake word listening to free the microphone")
+            try {
+                voskHandler?.stop()
+            } catch (e: Throwable) {
+                log("Error pausing Vosk for call: " + e.message)
+            }
+            voskHandler = null
+            isRunning = false
+            pausedForCall = true
+        } else if (state == TelephonyManager.CALL_STATE_IDLE && pausedForCall) {
+            log("Call ended — resuming wake word listening")
+            pausedForCall = false
+            try {
+                initVosk()
+            } catch (e: Throwable) {
+                log("Failed to resume Vosk after call: " + e.message)
+            }
+        }
     }
 
     private fun initVosk() {
@@ -194,6 +287,7 @@ class WakeWordService : Service() {
         super.onDestroy()
         log("onDestroy() called — service stopping")
         isRunning = false
+        unregisterCallStateWatcher()
         try {
             voskHandler?.stop()
         } catch (e: Throwable) {
