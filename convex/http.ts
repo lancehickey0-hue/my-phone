@@ -1,7 +1,7 @@
 import { httpRouter } from "convex/server";
-import { auth } from "./auth";
 import { httpAction } from "./_generated/server";
-import { api } from "./_generated/api";
+import { internal } from "./_generated/api";
+import { auth } from "./auth";
 
 const http = httpRouter();
 auth.addHttpRoutes(http);
@@ -12,7 +12,7 @@ http.route({
   handler: httpAction(async (ctx, request) => {
     try {
       const body = await request.json();
-      await ctx.runMutation(api.debugLogs.log, {
+      await ctx.runMutation(internal.debugLogs.add, {
         source: String(body.source ?? "unknown"),
         message: String(body.message ?? ""),
       });

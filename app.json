@@ -39,6 +39,8 @@
         "USE_FINGERPRINT",
         "FOREGROUND_SERVICE",
         "FOREGROUND_SERVICE_MICROPHONE",
+        "FOREGROUND_SERVICE_LOCATION",
+        "POST_NOTIFICATIONS",
         "WAKE_LOCK"
       ]
     },

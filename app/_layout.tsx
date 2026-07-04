@@ -75,7 +75,6 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!isAuthenticated) return;
 
-    // Handle push notification received while app is foregrounded
     const sub = Notifications.addNotificationReceivedListener((notification) => {
       const data = notification.request.content.data as any;
       if (data?.type === 'alarm' && data?.deviceId) {
@@ -94,7 +93,6 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
       }
     });
 
-    // Handle tap on push notification when app was backgrounded/killed
     const tapSub = Notifications.addNotificationResponseReceivedListener((response) => {
       const data = response.notification.request.content.data as any;
       if (data?.type === 'alarm' && data?.deviceId) {
@@ -120,12 +118,9 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
   }, [isAuthenticated]);
 
   // ── Ghost account eviction ────────────────────────────────────────────────
-  // isAuthenticated can be true with a valid JWT even after the user document
-  // was deleted from the DB. Detect this and force a sign-out so the login
-  // screen is shown with no stale session.
   useEffect(() => {
     if (!isAuthenticated || isLoading) return;
-    if (currentUser === undefined) return; // query still loading
+    if (currentUser === undefined) return;
     if (currentUser === null) {
       signOut();
     }
@@ -141,7 +136,6 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
 
     if (inWakeWordSetup || inLockout || inAuth) return;
 
-    // Skip redirect if the user already completed setup in a previous launch
     SecureStore.getItemAsync('wake_word_setup_done').then((done) => {
       if (done === 'true') {
         setSetupChecked(true);
@@ -151,7 +145,6 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
         setSetupChecked(true);
         router.replace('/wake-word-setup');
       }, 500);
-      // No cleanup possible here, but the setupChecked guard prevents re-runs
     });
   }, [isAuthenticated, segments, setupChecked]);
 

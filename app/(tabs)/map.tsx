@@ -155,6 +155,7 @@ export default function MapTab() {
     );
   }, []);
 
+  // Get user's own location once, for the blue dot + routing origin
   useEffect(() => {
     (async () => {
       const { status } = await Location.requestForegroundPermissionsAsync();
@@ -170,6 +171,7 @@ export default function MapTab() {
     }
   }, [mapReady, userLocation, sendToMap]);
 
+  // Push device markers into the map whenever devices or selection changes
   useEffect(() => {
     if (!mapReady) return;
     sendToMap({
@@ -185,6 +187,7 @@ export default function MapTab() {
     });
   }, [mapReady, devicesWithLocation, selectedDeviceId, sendToMap]);
 
+  // Initial fit-to-bounds once markers first load
   useEffect(() => {
     if (mapReady && devicesWithLocation.length > 0) {
       sendToMap({
@@ -227,6 +230,7 @@ export default function MapTab() {
     }
   }, [selectedDeviceId, triggerAlarm, stopAlarm, lockDevice, unlockDevice]);
 
+  // Free OSRM routing — walking directions from user's location to the device
   const handleDirections = useCallback(async () => {
     if (!selectedDevice?.lastLatitude || !selectedDevice?.lastLongitude) {
       Alert.alert('No Location', 'This device has no location data yet.');
@@ -263,6 +267,7 @@ export default function MapTab() {
 
   return (
     <View style={styles.container}>
+      {/* ─── Interactive Map ──────────────────────────────────────── */}
       <View style={styles.mapContainer}>
         <WebView
           ref={webviewRef}

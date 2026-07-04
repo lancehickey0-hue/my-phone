@@ -75,15 +75,23 @@ function HeartbeatManager() {
   // GPS location tracking — update this device's location in Convex
   useEffect(() => {
     let locationSub: Location.LocationSubscription | null = null;
+    let cancelled = false;
 
     (async () => {
+      let physicalId = (globalThis as any).__myPhoneDeviceId;
+      let attempts = 0;
+      while (!physicalId && attempts < 20 && !cancelled) {
+        await new Promise((r) => setTimeout(r, 500));
+        physicalId = (globalThis as any).__myPhoneDeviceId;
+        attempts++;
+      }
+      if (!physicalId || cancelled) return;
+
       try {
         const { status } = await Location.requestForegroundPermissionsAsync();
         if (status !== 'granted') return;
 
-        const physicalId = (globalThis as any).__myPhoneDeviceId;
-        if (!physicalId || devices.length === 0) return;
-
+        if (devices.length === 0) return;
         const myDevice = devices.find((d) => d.physicalDeviceId === physicalId);
         if (!myDevice) return;
 
@@ -125,43 +133,38 @@ function HeartbeatManager() {
     })();
 
     return () => {
+      cancelled = true;
       locationSub?.remove();
     };
   }, [devices.length]);
 
   // Heartbeat every 30s + mark offline on background
-  useEffect(() => {
-    if (devices.length === 0) return;
+useEffect(() => {
+  const physicalId = (globalThis as any).__myPhoneDeviceId;
+  const myDevice = devices.find((d) => d.physicalDeviceId === physicalId);
+  if (!myDevice) return;
 
-    devices.forEach((device) => {
-      heartbeat({ deviceId: device._id }).catch(() => {});
-    });
+  heartbeat({ deviceId: myDevice._id }).catch(() => {});
 
-    const interval = setInterval(() => {
-      devices.forEach((device) => {
-        heartbeat({ deviceId: device._id }).catch(() => {});
-      });
-    }, 30000);
+  const interval = setInterval(() => {
+    heartbeat({ deviceId: myDevice._id }).catch(() => {});
+  }, 30000);
 
-    const subscription = AppState.addEventListener('change', (state) => {
-      if (state === 'background' || state === 'inactive') {
-        devices.forEach((device) => {
-          markOffline({ deviceId: device._id }).catch(() => {});
-        });
-      } else if (state === 'active') {
-        devices.forEach((device) => {
-          heartbeat({ deviceId: device._id }).catch(() => {});
-        });
-      }
-    });
+  const subscription = AppState.addEventListener('change', (state) => {
+    if (state === 'background' || state === 'inactive') {
+      markOffline({ deviceId: myDevice._id }).catch(() => {});
+    } else if (state === 'active') {
+      heartbeat({ deviceId: myDevice._id }).catch(() => {});
+    }
+  });
 
-    return () => {
-      clearInterval(interval);
-      subscription.remove();
-    };
-  }, [devices.length]);
+  return () => {
+    clearInterval(interval);
+    subscription.remove();
+  };
+ }, [devices.length]);
 
-  return null;
+ return null;
 }
 
 export default function TabsLayout() {
