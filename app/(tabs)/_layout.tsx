@@ -47,7 +47,7 @@ function HeartbeatManager() {
   useEffect(() => {
     (async () => {
       try {
-        const { status } = await Notifications.requestPermissionsAsync();
+        const { status } = await Notifications.getPermissionsAsync();
         if (status !== 'granted') return;
 
         const tokenData = await Notifications.getExpoPushTokenAsync({
@@ -88,7 +88,7 @@ function HeartbeatManager() {
       if (!physicalId || cancelled) return;
 
       try {
-        const { status } = await Location.requestForegroundPermissionsAsync();
+        const { status } = await Location.getForegroundPermissionsAsync();
         if (status !== 'granted') return;
 
         if (devices.length === 0) return;

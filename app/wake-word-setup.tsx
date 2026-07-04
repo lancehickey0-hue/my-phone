@@ -1,4 +1,6 @@
 import * as SecureStore from 'expo-secure-store';
+import * as Notifications from 'expo-notifications';
+import * as Location from 'expo-location';
 import React, { useEffect, useState } from 'react';
 import {
   View,
@@ -25,17 +27,19 @@ export default function WakeWordSetupScreen() {
     checkAndSetup();
   }, []);
 
-  async function checkAndSetup() {
+  async function requestAllPermissions() {
+    // 1. Notifications
     try {
-      if (!WakeWordModule) {
-        router.replace('/(tabs)');
-        return;
-      }
+      await Notifications.requestPermissionsAsync();
+    } catch (e) {
+      console.warn('[Permissions] Notifications request failed:', e);
+    }
 
-      // Android 14 requires RECORD_AUDIO to be granted before startForeground()
-      // can be called with foregroundServiceType="microphone".
-      if (Platform.OS === 'android') {
-        const granted = await PermissionsAndroid.request(
+    // 2. Microphone + phone state (Android 14 requires RECORD_AUDIO granted
+    // before startForeground() can be called with foregroundServiceType="microphone").
+    if (Platform.OS === 'android') {
+      try {
+        await PermissionsAndroid.request(
           PermissionsAndroid.PERMISSIONS.RECORD_AUDIO,
           {
             title: 'Microphone Permission',
@@ -44,13 +48,11 @@ export default function WakeWordSetupScreen() {
             buttonNegative: 'Skip',
           }
         );
-        if (granted !== PermissionsAndroid.RESULTS.GRANTED) {
-          router.replace('/(tabs)');
-          return;
-        }
+      } catch (e) {
+        console.warn('[Permissions] Mic request failed:', e);
+      }
 
-        // Needed so the wake word service can detect and yield to phone calls
-        // instead of holding the microphone during them.
+      try {
         await PermissionsAndroid.request(
           PermissionsAndroid.PERMISSIONS.READ_PHONE_STATE,
           {
@@ -60,6 +62,39 @@ export default function WakeWordSetupScreen() {
             buttonNegative: 'Skip',
           }
         );
+      } catch (e) {
+        console.warn('[Permissions] Phone state request failed:', e);
+      }
+    }
+
+    // 3. Location — foreground first, background second (Android requires
+    // these to be requested as two separate steps, never together).
+    try {
+      const { status: fgStatus } = await Location.requestForegroundPermissionsAsync();
+      if (fgStatus === 'granted') {
+        await Location.requestBackgroundPermissionsAsync();
+      }
+    } catch (e) {
+      console.warn('[Permissions] Location request failed:', e);
+    }
+  }
+
+  async function checkAndSetup() {
+    try {
+      await requestAllPermissions();
+
+      if (!WakeWordModule) {
+        router.replace('/(tabs)');
+        return;
+      }
+
+      const micGranted =
+        Platform.OS !== 'android' ||
+        (await PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.RECORD_AUDIO));
+
+      if (!micGranted) {
+        router.replace('/(tabs)');
+        return;
       }
 
       const ready = await WakeWordModule.isModelReady();
