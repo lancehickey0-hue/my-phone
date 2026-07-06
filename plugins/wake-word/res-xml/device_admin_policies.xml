@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<device-admin xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-policies>
+        <!-- Only requesting force-lock: DevicePolicyManager.lockNow() is all
+             My-Phone needs. No password rules, wipe, or camera-disable
+             policies are requested. -->
+        <force-lock />
+    </uses-policies>
+</device-admin>

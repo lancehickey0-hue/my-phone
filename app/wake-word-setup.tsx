@@ -77,6 +77,21 @@ export default function WakeWordSetupScreen() {
     } catch (e) {
       console.warn('[Permissions] Location request failed:', e);
     }
+
+    // 4. Device Admin — required for a real OS-level lock (DevicePolicyManager
+    // .lockNow()). This opens a system screen the user must confirm; it can't
+    // be auto-granted. Skipping this just means remote lock falls back to the
+    // in-app lockout screen instead of the actual Android lock screen.
+    if (Platform.OS === 'android' && WakeWordModule?.isDeviceAdminActive) {
+      try {
+        const alreadyAdmin = await WakeWordModule.isDeviceAdminActive();
+        if (!alreadyAdmin) {
+          WakeWordModule.requestDeviceAdmin();
+        }
+      } catch (e) {
+        console.warn('[Permissions] Device admin request failed:', e);
+      }
+    }
   }
 
   async function checkAndSetup() {

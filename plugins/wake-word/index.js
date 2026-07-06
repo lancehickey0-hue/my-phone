@@ -62,6 +62,35 @@ function withWakeWordService(config) {
       });
     }
 
+    // Device Admin receiver — required for DevicePolicyManager.lockNow() to
+    // work at all. Without this exact registration (permission + meta-data
+    // + DEVICE_ADMIN_ENABLED intent-filter), Android silently refuses to let
+    // the app become a device admin.
+    const adminExists = app.receiver.some(
+      r => r.$?.['android:name'] === '.LockDeviceAdminReceiver'
+    );
+    if (!adminExists) {
+      app.receiver.push({
+        $: {
+          'android:name': '.LockDeviceAdminReceiver',
+          'android:label': 'My-Phone Device Lock',
+          'android:permission': 'android.permission.BIND_DEVICE_ADMIN',
+          'android:exported': 'true',
+        },
+        'meta-data': [{
+          $: {
+            'android:name': 'android.app.device_admin',
+            'android:resource': '@xml/device_admin_policies',
+          },
+        }],
+        'intent-filter': [{
+          action: [
+            { $: { 'android:name': 'android.app.action.DEVICE_ADMIN_ENABLED' } },
+          ],
+        }],
+      });
+    }
+
     return config;
   });
 
@@ -128,9 +157,18 @@ function withWakeWordService(config) {
         'BootReceiver.kt',
         'VoskModelManager.kt',
         'VoskHandler.kt',
+        'LockDeviceAdminReceiver.kt',
       ]) {
         fs.copyFileSync(path.join(wakeDir, f), path.join(srcDir, f));
       }
+
+      // Device admin policy resource (res/xml/device_admin_policies.xml)
+      const xmlDestDir = path.join(root, 'android/app/src/main/res/xml');
+      fs.mkdirSync(xmlDestDir, { recursive: true });
+      fs.copyFileSync(
+        path.join(wakeDir, 'res-xml/device_admin_policies.xml'),
+        path.join(xmlDestDir, 'device_admin_policies.xml')
+      );
 
       return config;
     },

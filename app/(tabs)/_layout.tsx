@@ -6,6 +6,7 @@ import * as Location from 'expo-location';
 import * as Notifications from 'expo-notifications';
 import { api } from '../../convex/_generated/api';
 import { AlarmWatcher } from '../../src/lib/AlarmWatcher';
+import { LockWatcher } from '../../src/lib/LockWatcher';
 import { colors } from '../../src/lib/theme';
 
 Notifications.setNotificationHandler({
@@ -172,6 +173,7 @@ export default function TabsLayout() {
     <>
       <HeartbeatManager />
       <AlarmWatcher />
+      <LockWatcher />
       <Tabs
         screenOptions={{
           headerShown: true,
