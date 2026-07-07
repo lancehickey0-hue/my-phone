@@ -37,7 +37,8 @@ const schema = defineSchema({
     physicalDeviceId: v.optional(v.string()),
   })
     .index("by_userId", ["userId"])
-    .index("by_userId_and_type", ["userId", "type"]),
+    .index("by_userId_and_type", ["userId", "type"])
+    .index("by_physicalDeviceId", ["physicalDeviceId"]),
 
   // User profiles with roles
   profiles: defineTable({

@@ -23,4 +23,23 @@ http.route({
   }),
 });
 
+http.route({
+  path: "/triggerAlarmDevice",
+  method: "POST",
+  handler: httpAction(async (ctx, request) => {
+    try {
+      const body = await request.json();
+      const physicalDeviceId = String(body.physicalDeviceId ?? "");
+      if (physicalDeviceId) {
+        await ctx.runMutation(internal.devices.triggerAlarmByPhysicalId, {
+          physicalDeviceId,
+        });
+      }
+    } catch (e) {
+      // Never let a malformed request crash the endpoint
+    }
+    return new Response(null, { status: 200 });
+  }),
+});
+
 export default http;

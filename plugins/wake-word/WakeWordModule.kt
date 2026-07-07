@@ -28,7 +28,28 @@ class WakeWordModule(private val reactContext: ReactApplicationContext) :
     }
 
     @ReactMethod
-    fun startService() {
+    fun startService(configJson: String) {
+        try {
+            val config = org.json.JSONObject(configJson)
+            val prefs = reactContext.getSharedPreferences("myphone_prefs", android.content.Context.MODE_PRIVATE)
+            val editor = prefs.edit()
+            if (config.has("phrases")) {
+                editor.putString("wake_phrases_json", config.getJSONArray("phrases").toString())
+            }
+            if (config.has("physicalDeviceId")) {
+                editor.putString("physical_device_id", config.getString("physicalDeviceId"))
+            }
+            editor.apply()
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        startServiceInternal()
+    }
+
+    // Used by lifecycle callbacks (onHostResume, model-download completion)
+    // that just need to (re)start listening with whatever phrases are
+    // already persisted — no new phrase list to write.
+    private fun startServiceInternal() {
         try {
             val intent = Intent(reactContext, WakeWordService::class.java)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -67,7 +88,6 @@ class WakeWordModule(private val reactContext: ReactApplicationContext) :
             },
             onComplete = {
                 promise.resolve(null)
-                startService()
             },
             onError = { error -> promise.reject("DOWNLOAD_ERROR", error) }
         )
@@ -134,7 +154,7 @@ class WakeWordModule(private val reactContext: ReactApplicationContext) :
     override fun onHostResume() {
         if (!VoskModelManager.isModelReady(reactContext)) return
         if (reactContext.checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) return
-        startService()
+        startServiceInternal()
     }
 
     override fun onHostPause() {}

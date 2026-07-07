@@ -32,12 +32,75 @@ class WakeWordService : Service() {
     private val NOTIFICATION_ID = 1001
 
     private val CONVEX_LOG_URL = "https://cheery-buffalo-947.convex.site/logDebug"
+    private val CONVEX_TRIGGER_ALARM_URL = "https://cheery-buffalo-947.convex.site/triggerAlarmDevice"
 
-    private val WAKE_PHRASES = listOf(
-        "hey my phone where are you",
-        "hey my phone",
-        "my phone where are you"
-    )
+    // Phrases are written by WakeWordModule.startService(configJson) — set
+    // by JS from this device's own `wakePhrase`/`customWakePhrase` in
+    // Convex, so e.g. a phone never reacts to a tablet's phrase. Falls back
+    // to a generic phone phrase set only if nothing has been persisted yet.
+    private fun loadWakePhrases(): List<String> {
+        return try {
+            val prefs = getSharedPreferences("myphone_prefs", MODE_PRIVATE)
+            val json = prefs.getString("wake_phrases_json", null)
+            if (json != null) {
+                val arr = org.json.JSONArray(json)
+                (0 until arr.length()).map { arr.getString(it).lowercase().trim() }
+            } else {
+                listOf("hey my phone where are you", "hey my phone", "my phone where are you")
+            }
+        } catch (e: Exception) {
+            log("Failed to load wake phrases, using default: " + e.message)
+            listOf("hey my phone where are you", "hey my phone", "my phone where are you")
+        }
+    }
+
+    private fun loadPhysicalDeviceId(): String? {
+        return try {
+            getSharedPreferences("myphone_prefs", MODE_PRIVATE).getString("physical_device_id", null)
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    // Triggers the alarm/lock directly in Convex over plain HTTP, bypassing
+    // the JS bridge entirely. This is the reliable path: the JS emit below
+    // silently no-ops whenever reactContext is null (app backgrounded,
+    // screen off, process trimmed) — exactly when this feature matters
+    // most. Once this call flips isAlarmActive/isLocked in Convex, the
+    // app's existing AlarmWatcher/LockWatcher will react the moment its JS
+    // is next alive, the same way a remote lock from another device does.
+    private fun triggerAlarmNative() {
+        val physicalDeviceId = loadPhysicalDeviceId()
+        if (physicalDeviceId.isNullOrEmpty()) {
+            log("Cannot trigger alarm natively — no physicalDeviceId persisted yet")
+            return
+        }
+        logExecutor.execute {
+            try {
+                val url = URL(CONVEX_TRIGGER_ALARM_URL)
+                val conn = url.openConnection() as HttpURLConnection
+                conn.requestMethod = "POST"
+                conn.setRequestProperty("Content-Type", "application/json")
+                conn.doOutput = true
+                conn.connectTimeout = 5000
+                conn.readTimeout = 5000
+
+                val body = JSONObject()
+                body.put("physicalDeviceId", physicalDeviceId)
+
+                val writer = OutputStreamWriter(conn.outputStream)
+                writer.write(body.toString())
+                writer.flush()
+                writer.close()
+
+                val code = conn.responseCode
+                conn.disconnect()
+                log("triggerAlarmNative HTTP response: $code")
+            } catch (e: Throwable) {
+                log("triggerAlarmNative failed: " + e.message)
+            }
+        }
+    }
 
     private var voskHandler: VoskHandler? = null
     private var isRunning = false
@@ -228,7 +291,7 @@ class WakeWordService : Service() {
                 }
                 log("Vosk model is ready, initializing VoskHandler")
                 val modelDir = File(filesDir, "vosk-model")
-                voskHandler = VoskHandler(this, modelDir.absolutePath, WAKE_PHRASES) {
+                voskHandler = VoskHandler(this, modelDir.absolutePath, loadWakePhrases()) {
                     log("*** WAKE PHRASE DETECTED ***")
                     emitWakeWordDetected()
                 }
@@ -243,6 +306,10 @@ class WakeWordService : Service() {
 
     private fun emitWakeWordDetected() {
         log("emitWakeWordDetected() called")
+
+        // Reliable path first — works whether or not JS is alive.
+        triggerAlarmNative()
+
         val intent = Intent("com.myphone.app.WAKE_WORD_DETECTED")
         sendBroadcast(intent)
         try {
@@ -251,7 +318,7 @@ class WakeWordService : Service() {
                 ?.reactInstanceManager
                 ?.currentReactContext
             if (reactContext == null) {
-                log("WARNING: reactContext is NULL — cannot emit WakeWordDetected to JS")
+                log("reactContext is NULL — relying on native trigger only (this is expected when backgrounded)")
             }
             reactContext
                 ?.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)

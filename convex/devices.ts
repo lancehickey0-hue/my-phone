@@ -211,6 +211,41 @@ export const triggerAlarm = mutation({
   },
 });
 
+// Internal — triggered directly from the native WakeWordService over HTTP
+// (see http.ts /triggerAlarmDevice), bypassing the JS bridge entirely.
+// This exists because the JS-bridge emit path silently fails whenever the
+// app's React context isn't alive (backgrounded, screen off, process
+// trimmed) — exactly when a "find my device" feature most needs to work.
+// Scoped by physicalDeviceId instead of user auth since this call
+// originates from the device itself, not an interactive session.
+export const triggerAlarmByPhysicalId = internalMutation({
+  args: { physicalDeviceId: v.string() },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const device = await ctx.db
+      .query("devices")
+      .withIndex("by_physicalDeviceId", (q) => q.eq("physicalDeviceId", args.physicalDeviceId))
+      .first();
+    if (!device) return null;
+
+    await ctx.db.patch(device._id, {
+      isAlarmActive: true,
+      isLocked: true,
+      status: "alarm",
+    });
+
+    await ctx.db.insert("activityLog", {
+      userId: device.userId,
+      deviceId: device._id,
+      action: "alarm_triggered",
+      details: `Alarm triggered on ${device.name} (voice)`,
+      timestamp: Date.now(),
+    });
+
+    return null;
+  },
+});
+
 // Internal action — sends Expo push notification to wake a remote device
 export const sendAlarmPush = internalAction({
   args: {

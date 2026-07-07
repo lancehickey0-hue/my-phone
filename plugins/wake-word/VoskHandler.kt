@@ -18,6 +18,12 @@ class VoskHandler(
     private var model: Model? = null
     private var speechService: SpeechService? = null
 
+    // A single spoken utterance produces many onPartialResult calls as Vosk
+    // refines its guess — without this, one "hey my phone" could match
+    // 20+ times before the final result arrives. Reset on each final result
+    // (i.e. once Vosk detects the pause at the end of the utterance).
+    private var hasTriggeredThisUtterance = false
+
     fun start() {
         model = Model(modelPath)
         val recognizer = Recognizer(model, 16000.0f)
@@ -36,11 +42,15 @@ class VoskHandler(
         if (hypothesis == null) return
         try {
             val text = JSONObject(hypothesis).optString("text", "").lowercase().trim()
-            if (text.isNotEmpty() && matchesWakePhrase(text)) {
+            if (text.isNotEmpty() && matchesWakePhrase(text) && !hasTriggeredThisUtterance) {
+                hasTriggeredThisUtterance = true
                 onWakeWordDetected()
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error parsing result: " + e.message)
+        } finally {
+            // Final result = end of this utterance. Arm for the next one.
+            hasTriggeredThisUtterance = false
         }
     }
 
@@ -48,7 +58,8 @@ class VoskHandler(
         if (hypothesis == null) return
         try {
             val text = JSONObject(hypothesis).optString("partial", "").lowercase().trim()
-            if (text.isNotEmpty() && matchesWakePhrase(text)) {
+            if (text.isNotEmpty() && matchesWakePhrase(text) && !hasTriggeredThisUtterance) {
+                hasTriggeredThisUtterance = true
                 onWakeWordDetected()
             }
         } catch (e: Exception) {

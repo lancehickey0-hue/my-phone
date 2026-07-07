@@ -13,6 +13,7 @@ import type * as auth from "../auth.js";
 import type * as billing from "../billing.js";
 import type * as biometric from "../biometric.js";
 import type * as constants from "../constants.js";
+import type * as debugLogs from "../debugLogs.js";
 import type * as devices from "../devices.js";
 import type * as http from "../http.js";
 import type * as profiles from "../profiles.js";
@@ -31,6 +32,7 @@ declare const fullApi: ApiFromModules<{
   billing: typeof billing;
   biometric: typeof biometric;
   constants: typeof constants;
+  debugLogs: typeof debugLogs;
   devices: typeof devices;
   http: typeof http;
   profiles: typeof profiles;
