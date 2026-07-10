@@ -14,9 +14,6 @@ import {
   Pressable,
 } from 'react-native';
 import { useRouter } from 'expo-router';
-import { useQuery } from 'convex/react';
-import { api } from '../convex/_generated/api';
-import { getPhraseVariants } from '../src/lib/deviceIcons';
 
 const { WakeWordModule } = NativeModules;
 
@@ -25,21 +22,6 @@ export default function WakeWordSetupScreen() {
   const [status, setStatus] = useState<'checking' | 'downloading' | 'ready' | 'error'>('checking');
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState('');
-
-  const devices = useQuery(api.devices.list) ?? [];
-
-  // This device's own canonical phrase from Convex (respects any custom
-  // phrase the user has set) — not guessed from type, so a phone never
-  // reacts to a tablet's phrase and any customization is honored.
-  function getMyWakeConfig(): string {
-    const physicalId = (globalThis as any).__myPhoneDeviceId;
-    const myDevice = devices.find((d: any) => d.physicalDeviceId === physicalId);
-    const rawPhrase = myDevice?.customWakePhrase || myDevice?.wakePhrase || 'Hey, My-Phone, where are you?';
-    return JSON.stringify({
-      phrases: getPhraseVariants(rawPhrase),
-      physicalDeviceId: physicalId ?? '',
-    });
-  }
 
   useEffect(() => {
     checkAndSetup();
@@ -117,7 +99,7 @@ export default function WakeWordSetupScreen() {
       await requestAllPermissions();
 
       if (!WakeWordModule) {
-        router.replace('/(tabs)');
+        router.replace('/auth');
         return;
       }
 
@@ -126,16 +108,15 @@ export default function WakeWordSetupScreen() {
         (await PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.RECORD_AUDIO));
 
       if (!micGranted) {
-        router.replace('/(tabs)');
+        router.replace('/auth');
         return;
       }
 
       const ready = await WakeWordModule.isModelReady();
       if (ready) {
         setStatus('ready');
-        WakeWordModule.startService(getMyWakeConfig());
         await SecureStore.setItemAsync('wake_word_setup_done', 'true');
-        setTimeout(() => router.replace('/(tabs)'), 1000);
+        setTimeout(() => router.replace('/auth'), 1000);
       } else {
         setStatus('downloading');
         const emitter = new NativeEventEmitter(WakeWordModule);
@@ -144,9 +125,8 @@ export default function WakeWordSetupScreen() {
           .then(async () => {
             progressSub.remove();
             setStatus('ready');
-            WakeWordModule.startService(getMyWakeConfig());
             await SecureStore.setItemAsync('wake_word_setup_done', 'true');
-            setTimeout(() => router.replace('/(tabs)'), 1500);
+            setTimeout(() => router.replace('/auth'), 1500);
           })
           .catch((err: { message: string }) => {
             progressSub.remove();
@@ -155,7 +135,7 @@ export default function WakeWordSetupScreen() {
           });
       }
     } catch (e: any) {
-      router.replace('/(tabs)');
+      router.replace('/auth');
     }
   }
 
@@ -196,7 +176,7 @@ export default function WakeWordSetupScreen() {
           <Pressable style={styles.retryBtn} onPress={checkAndSetup}>
             <Text style={styles.retryText}>Retry</Text>
           </Pressable>
-          <Pressable style={styles.skipBtn} onPress={() => router.replace('/(tabs)')}>
+          <Pressable style={styles.skipBtn} onPress={() => router.replace('/auth')}>
             <Text style={styles.skipText}>Skip for now</Text>
           </Pressable>
         </>

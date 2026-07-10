@@ -1,13 +1,16 @@
 import { Tabs } from 'expo-router';
 import React, { useEffect, useRef } from 'react';
-import { Image, Text, AppState, Platform } from 'react-native';
+import { Image, Text, AppState, Platform, NativeModules } from 'react-native';
 import { useQuery, useMutation } from 'convex/react';
 import * as Location from 'expo-location';
 import * as Notifications from 'expo-notifications';
 import { api } from '../../convex/_generated/api';
 import { AlarmWatcher } from '../../src/lib/AlarmWatcher';
 import { LockWatcher } from '../../src/lib/LockWatcher';
+import { getPhraseVariants } from '../../src/lib/deviceIcons';
 import { colors } from '../../src/lib/theme';
+
+const { WakeWordModule } = NativeModules;
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
@@ -72,6 +75,31 @@ function HeartbeatManager() {
       }
     })();
   }, [devices.length]);
+
+  // Start the wake word listening service with this device's *real*
+  // phrase, now that we're authenticated and know which device this is.
+  // Deliberately not done in wake-word-setup.tsx — that screen runs before
+  // login, when there's no account yet to look up a phrase from, and
+  // querying an account-scoped table pre-login is what caused the crash
+  // this replaced. Guarded by a ref so it only fires once per app session.
+  const wakeServiceStarted = useRef(false);
+  useEffect(() => {
+    if (wakeServiceStarted.current) return;
+    if (Platform.OS !== 'android' || !WakeWordModule?.startService) return;
+
+    const physicalId = (globalThis as any).__myPhoneDeviceId;
+    if (!physicalId || devices.length === 0) return;
+
+    const myDevice = devices.find((d) => d.physicalDeviceId === physicalId);
+    if (!myDevice) return;
+
+    wakeServiceStarted.current = true;
+    const rawPhrase = (myDevice as any).customWakePhrase || (myDevice as any).wakePhrase || 'Hey, My-Phone, where are you?';
+    WakeWordModule.startService(JSON.stringify({
+      phrases: getPhraseVariants(rawPhrase),
+      physicalDeviceId: physicalId,
+    }));
+  }, [devices]);
 
   // GPS location tracking — update this device's location in Convex
   useEffect(() => {
