@@ -1,6 +1,7 @@
 import { useAuthActions } from '@convex-dev/auth/react';
 import { useQuery } from 'convex/react';
 import { useRouter } from 'expo-router';
+import * as SecureStore from 'expo-secure-store';
 import React from 'react';
 import {
   Alert,
@@ -30,6 +31,23 @@ export default function ProfileTab() {
       { text: 'Cancel', style: 'cancel' },
       { text: 'Sign Out', style: 'destructive', onPress: async () => { await signOut(); router.replace('/auth'); } },
     ]);
+  }
+
+  function handleRedoDeviceSetup() {
+    Alert.alert(
+      'Redo Device Setup',
+      'This re-runs mic, location, and device admin permission requests for this device — useful after an app update adds new setup steps. Continue?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Continue',
+          onPress: async () => {
+            await SecureStore.deleteItemAsync('wake_word_setup_done');
+            router.replace('/wake-word-setup');
+          },
+        },
+      ]
+    );
   }
 
   return (
@@ -141,6 +159,16 @@ export default function ProfileTab() {
           </Pressable>
         </View>
       )}
+
+      {/* Device Setup */}
+      <View style={styles.card}>
+        <Text style={styles.cardTitle}>Device Setup</Text>
+        <Pressable style={styles.menuRow} onPress={handleRedoDeviceSetup}>
+          <Text style={styles.menuEmoji}>🔁</Text>
+          <Text style={styles.menuText}>Redo Wake Word & Permissions Setup</Text>
+          <Text style={styles.chevron}>›</Text>
+        </Pressable>
+      </View>
 
       {/* Sign Out */}
       <Pressable style={styles.signOutBtn} onPress={handleSignOut}>
