@@ -127,38 +127,47 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
   }, [isAuthenticated, isLoading, currentUser]);
 
   // ── Wake word setup check ─────────────────────────────────────────────────
+  // Runs independent of auth state entirely — permissions + Vosk download
+  // happen before we know or care whether someone's logged in.
   useEffect(() => {
-    if (!isAuthenticated || setupChecked) return;
+    if (setupChecked) return;
 
     const inWakeWordSetup = segments[0] === 'wake-word-setup';
     const inLockout = segments[0] === 'lockout';
-    const inAuth = segments[0] === 'auth';
 
-    if (inWakeWordSetup || inLockout || inAuth) return;
+    if (inWakeWordSetup || inLockout) return;
 
     SecureStore.getItemAsync('wake_word_setup_done').then((done) => {
-      if (done === 'true') {
-        setSetupChecked(true);
-        return;
-      }
-      const timer = setTimeout(() => {
-        setSetupChecked(true);
+      setSetupChecked(true);
+      if (done !== 'true') {
         router.replace('/wake-word-setup');
-      }, 500);
+      }
     });
-  }, [isAuthenticated, segments, setupChecked]);
+  }, [segments, setupChecked]);
 
   // ── Auth routing ──────────────────────────────────────────────────────────
+  // (tabs) is only ever reached once currentUser resolves to a real,
+  // server-confirmed user — never speculatively. If isAuthenticated is
+  // false, or claims true but currentUser turns out null (ghost session),
+  // we go straight to /auth. While currentUser is still resolving
+  // (undefined) we simply wait — the Stack's initial screen is /auth, not
+  // (tabs), so there's nothing sensitive on screen during that wait.
   useEffect(() => {
-    if (isLoading) return;
+    if (isLoading || !setupChecked) return;
 
-    if (!isAuthenticated) {
+    const inWakeWordSetup = segments[0] === 'wake-word-setup';
+    if (inWakeWordSetup) return;
+
+    if (!isAuthenticated || currentUser === null) {
       profileCreated.current = false;
       deviceRegistered.current = false;
-      setSetupChecked(false);
-      router.replace('/auth');
+      if (segments[0] !== 'auth') {
+        router.replace('/auth');
+      }
       return;
     }
+
+    if (currentUser === undefined) return;
 
     if (!profileCreated.current) {
       profileCreated.current = true;
@@ -197,7 +206,12 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
         })();
       }
     }
-  }, [isAuthenticated, isLoading]);
+
+    // Real, confirmed user — safe to enter the app now.
+    if (segments[0] === 'auth' || segments[0] === 'wake-word-setup') {
+      router.replace('/(tabs)');
+    }
+  }, [isAuthenticated, isLoading, currentUser, segments, setupChecked]);
 
   return <>{children}</>;
 }
@@ -208,6 +222,7 @@ export default function RootLayout() {
       <StatusBar style="light" />
       <AuthGuard>
         <Stack
+          initialRouteName="auth"
           screenOptions={{
             headerShown: false,
             contentStyle: { backgroundColor: colors.bgPrimary },

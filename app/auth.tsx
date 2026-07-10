@@ -1,5 +1,4 @@
 import { useAuthActions } from '@convex-dev/auth/react';
-import * as SecureStore from 'expo-secure-store';
 import React, { useState } from 'react';
 import {
   Alert,
@@ -15,20 +14,8 @@ import {
 } from 'react-native';
 import { borderRadius, colors, fontSize, spacing } from '../src/lib/theme';
 
-const CONVEX_URL = process.env.EXPO_PUBLIC_CONVEX_URL || 'https://cheery-buffalo-947.convex.cloud';
-const STORAGE_NS = CONVEX_URL.replace(/[^a-zA-Z0-9]/g, '');
-const REFRESH_KEY = `__convexAuthRefreshToken_${STORAGE_NS}`;
-const JWT_KEY = `__convexAuthJWT_${STORAGE_NS}`;
-
-async function clearStaleTokens() {
-  await Promise.allSettled([
-    SecureStore.deleteItemAsync(REFRESH_KEY),
-    SecureStore.deleteItemAsync(JWT_KEY),
-  ]);
-}
-
 export default function AuthScreen() {
-  const { signIn } = useAuthActions();
+  const { signIn, signOut } = useAuthActions();
   const [mode, setMode] = useState<'signin' | 'signup'>('signin');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -48,7 +35,13 @@ export default function AuthScreen() {
     setLoading(true);
     setError('');
     try {
-      await clearStaleTokens();
+      // Use the auth library's own signOut (not manual SecureStore poking)
+      // so its in-memory client state and persisted storage stay in sync.
+      // Directly deleting the underlying token keys here previously left
+      // the client's internal state out of sync with storage, which is
+      // what caused sign-in to hang on "please wait" until a full app
+      // restart re-initialized everything from scratch.
+      await signOut().catch(() => {});
       const payload: Record<string, string> = {
         email: email.trim(),
         password,

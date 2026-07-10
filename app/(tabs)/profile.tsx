@@ -74,11 +74,15 @@ export default function ProfileTab() {
         </View>
         <View style={styles.infoRow}>
           <Text style={styles.infoLabel}>Status</Text>
-          <View style={[styles.statusPill, profile?.subscriptionStatus === 'trial' ? styles.statusTrial : profile?.subscriptionStatus === 'active' ? styles.statusActive : styles.statusTrial]}>
-            <Text style={styles.statusPillText}>
-              {profile?.subscriptionStatus === 'trial' ? '🟡 Trial' : profile?.subscriptionStatus === 'active' ? '🟢 Active' : profile?.subscriptionStatus === 'expired' ? '🔴 Expired' : '⏸️ Cancelled'}
-            </Text>
-          </View>
+          {profile ? (
+            <View style={[styles.statusPill, profile.subscriptionStatus === 'trial' ? styles.statusTrial : profile.subscriptionStatus === 'active' ? styles.statusActive : styles.statusTrial]}>
+              <Text style={styles.statusPillText}>
+                {profile.subscriptionStatus === 'trial' ? '🟡 Trial' : profile.subscriptionStatus === 'active' ? '🟢 Active' : profile.subscriptionStatus === 'expired' ? '🔴 Expired' : '⏸️ Cancelled'}
+              </Text>
+            </View>
+          ) : (
+            <Text style={styles.infoValue}>—</Text>
+          )}
         </View>
         {subscription && subscription.status === 'trial' && (
           <View style={styles.infoRow}>
