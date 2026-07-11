@@ -87,16 +87,6 @@ export default function WakeWordSetupScreen() {
         logStep('phone_state: FAILED ' + (e as any)?.message);
       }
 
-      // PermissionsAndroid (React Native's bridge) and Location's own
-      // permission request (a separate Expo bridge) both compete for
-      // Android's single onRequestPermissionsResult() callback on the
-      // Activity. Firing them back-to-back with zero gap can cause the
-      // second request's native callback to never fire — a silent hang
-      // with no error and no dialog, not a missing-permission issue.
-      // A short settle delay lets the previous callback fully complete
-      // before switching bridges.
-      logStep('settle_delay: waiting 400ms before location');
-      await new Promise((resolve) => setTimeout(resolve, 400));
     }
 
     // 3. Location — foreground first, background second (Android requires
@@ -106,8 +96,6 @@ export default function WakeWordSetupScreen() {
       const { status: fgStatus } = await Location.requestForegroundPermissionsAsync();
       logStep('location_foreground: done, status=' + fgStatus);
       if (fgStatus === 'granted') {
-        logStep('settle_delay: waiting 400ms before background location');
-        await new Promise((resolve) => setTimeout(resolve, 400));
         logStep('location_background: requesting');
         const { status: bgStatus } = await Location.requestBackgroundPermissionsAsync();
         logStep('location_background: done, status=' + bgStatus);
