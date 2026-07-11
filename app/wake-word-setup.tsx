@@ -40,75 +40,99 @@ export default function WakeWordSetupScreen() {
   async function requestAllPermissions() {
     logStep('start');
 
-    // 1. Notifications
-    try {
-      logStep('notifications: requesting');
-      await Notifications.requestPermissionsAsync();
-      logStep('notifications: done');
-    } catch (e) {
-      console.warn('[Permissions] Notifications request failed:', e);
-      logStep('notifications: FAILED ' + (e as any)?.message);
-    }
+    const tasks: Promise<void>[] = [];
 
-    // 2. Microphone + phone state (Android 14 requires RECORD_AUDIO granted
-    // before startForeground() can be called with foregroundServiceType="microphone").
+    // Notifications
+    tasks.push(
+      (async () => {
+        try {
+          logStep('notifications: requesting');
+          await Notifications.requestPermissionsAsync();
+          logStep('notifications: done');
+        } catch (e) {
+          console.warn('[Permissions] Notifications request failed:', e);
+          logStep('notifications: FAILED ' + (e as any)?.message);
+        }
+      })()
+    );
+
     if (Platform.OS === 'android') {
-      try {
-        logStep('mic: requesting');
-        await PermissionsAndroid.request(
-          PermissionsAndroid.PERMISSIONS.RECORD_AUDIO,
-          {
-            title: 'Microphone Permission',
-            message: 'My-Phone needs microphone access to detect your wake word in the background.',
-            buttonPositive: 'Allow',
-            buttonNegative: 'Skip',
+      // Microphone
+      tasks.push(
+        (async () => {
+          try {
+            logStep('mic: requesting');
+            await PermissionsAndroid.request(
+              PermissionsAndroid.PERMISSIONS.RECORD_AUDIO,
+              {
+                title: 'Microphone Permission',
+                message: 'My-Phone needs microphone access to detect your wake word in the background.',
+                buttonPositive: 'Allow',
+                buttonNegative: 'Skip',
+              }
+            );
+            logStep('mic: done');
+          } catch (e) {
+            console.warn('[Permissions] Mic request failed:', e);
+            logStep('mic: FAILED ' + (e as any)?.message);
           }
-        );
-        logStep('mic: done');
-      } catch (e) {
-        console.warn('[Permissions] Mic request failed:', e);
-        logStep('mic: FAILED ' + (e as any)?.message);
-      }
+        })()
+      );
 
-      try {
-        logStep('phone_state: requesting');
-        await PermissionsAndroid.request(
-          PermissionsAndroid.PERMISSIONS.READ_PHONE_STATE,
-          {
-            title: 'Phone State Permission',
-            message: 'My-Phone needs this to pause voice detection during calls.',
-            buttonPositive: 'Allow',
-            buttonNegative: 'Skip',
+      // Phone state
+      tasks.push(
+        (async () => {
+          try {
+            logStep('phone_state: requesting');
+            await PermissionsAndroid.request(
+              PermissionsAndroid.PERMISSIONS.READ_PHONE_STATE,
+              {
+                title: 'Phone State Permission',
+                message: 'My-Phone needs this to pause voice detection during calls.',
+                buttonPositive: 'Allow',
+                buttonNegative: 'Skip',
+              }
+            );
+            logStep('phone_state: done');
+          } catch (e) {
+            console.warn('[Permissions] Phone state request failed:', e);
+            logStep('phone_state: FAILED ' + (e as any)?.message);
           }
-        );
-        logStep('phone_state: done');
-      } catch (e) {
-        console.warn('[Permissions] Phone state request failed:', e);
-        logStep('phone_state: FAILED ' + (e as any)?.message);
-      }
-
+        })()
+      );
     }
 
-    // 3. Location — foreground first, background second (Android requires
-    // these to be requested as two separate steps, never together).
-    try {
-      logStep('location_foreground: requesting');
-      const { status: fgStatus } = await Location.requestForegroundPermissionsAsync();
-      logStep('location_foreground: done, status=' + fgStatus);
-      if (fgStatus === 'granted') {
-        logStep('location_background: requesting');
-        const { status: bgStatus } = await Location.requestBackgroundPermissionsAsync();
-        logStep('location_background: done, status=' + bgStatus);
-      }
-    } catch (e) {
-      console.warn('[Permissions] Location request failed:', e);
-      logStep('location: FAILED ' + (e as any)?.message);
-    }
+    // Location — foreground then background stay sequential internally;
+    // Android requires background to be requested strictly after
+    // foreground is granted, that pairing isn't optional. But this whole
+    // chain starts concurrently with everything else above.
+    tasks.push(
+      (async () => {
+        try {
+          logStep('location_foreground: requesting');
+          const { status: fgStatus } = await Location.requestForegroundPermissionsAsync();
+          logStep('location_foreground: done, status=' + fgStatus);
+          if (fgStatus === 'granted') {
+            logStep('location_background: requesting');
+            const { status: bgStatus } = await Location.requestBackgroundPermissionsAsync();
+            logStep('location_background: done, status=' + bgStatus);
+          }
+        } catch (e) {
+          console.warn('[Permissions] Location request failed:', e);
+          logStep('location: FAILED ' + (e as any)?.message);
+        }
+      })()
+    );
 
-    // 4. Device Admin — required for a real OS-level lock (DevicePolicyManager
-    // .lockNow()). This opens a system screen the user must confirm; it can't
-    // be auto-granted. Skipping this just means remote lock falls back to the
-    // in-app lockout screen instead of the actual Android lock screen.
+    await Promise.allSettled(tasks);
+
+    // Device Admin runs AFTER the others settle, not concurrently with them.
+    // It's fundamentally different from the rest: it launches a whole
+    // separate full-screen system Activity via startActivity(), not a
+    // runtime permission dialog callback. Firing it at the exact same
+    // moment as 4 other things all competing for the current Activity's
+    // attention is a much bigger collision risk than the others — this is
+    // very likely why it stopped firing once everything went concurrent.
     if (Platform.OS === 'android' && WakeWordModule?.isDeviceAdminActive) {
       try {
         logStep('device_admin: checking status');
