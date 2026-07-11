@@ -17,6 +17,16 @@ import { useRouter } from 'expo-router';
 
 const { WakeWordModule } = NativeModules;
 
+const CONVEX_SITE_URL = process.env.EXPO_PUBLIC_CONVEX_SITE_URL || 'https://cheery-buffalo-947.convex.site';
+
+function logStep(message: string) {
+  fetch(`${CONVEX_SITE_URL}/logDebug`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ source: 'permissions', message }),
+  }).catch(() => {});
+}
+
 export default function WakeWordSetupScreen() {
   const router = useRouter();
   const [status, setStatus] = useState<'checking' | 'downloading' | 'ready' | 'error'>('checking');
@@ -28,17 +38,23 @@ export default function WakeWordSetupScreen() {
   }, []);
 
   async function requestAllPermissions() {
+    logStep('start');
+
     // 1. Notifications
     try {
+      logStep('notifications: requesting');
       await Notifications.requestPermissionsAsync();
+      logStep('notifications: done');
     } catch (e) {
       console.warn('[Permissions] Notifications request failed:', e);
+      logStep('notifications: FAILED ' + (e as any)?.message);
     }
 
     // 2. Microphone + phone state (Android 14 requires RECORD_AUDIO granted
     // before startForeground() can be called with foregroundServiceType="microphone").
     if (Platform.OS === 'android') {
       try {
+        logStep('mic: requesting');
         await PermissionsAndroid.request(
           PermissionsAndroid.PERMISSIONS.RECORD_AUDIO,
           {
@@ -48,11 +64,14 @@ export default function WakeWordSetupScreen() {
             buttonNegative: 'Skip',
           }
         );
+        logStep('mic: done');
       } catch (e) {
         console.warn('[Permissions] Mic request failed:', e);
+        logStep('mic: FAILED ' + (e as any)?.message);
       }
 
       try {
+        logStep('phone_state: requesting');
         await PermissionsAndroid.request(
           PermissionsAndroid.PERMISSIONS.READ_PHONE_STATE,
           {
@@ -62,20 +81,40 @@ export default function WakeWordSetupScreen() {
             buttonNegative: 'Skip',
           }
         );
+        logStep('phone_state: done');
       } catch (e) {
         console.warn('[Permissions] Phone state request failed:', e);
+        logStep('phone_state: FAILED ' + (e as any)?.message);
       }
+
+      // PermissionsAndroid (React Native's bridge) and Location's own
+      // permission request (a separate Expo bridge) both compete for
+      // Android's single onRequestPermissionsResult() callback on the
+      // Activity. Firing them back-to-back with zero gap can cause the
+      // second request's native callback to never fire — a silent hang
+      // with no error and no dialog, not a missing-permission issue.
+      // A short settle delay lets the previous callback fully complete
+      // before switching bridges.
+      logStep('settle_delay: waiting 400ms before location');
+      await new Promise((resolve) => setTimeout(resolve, 400));
     }
 
     // 3. Location — foreground first, background second (Android requires
     // these to be requested as two separate steps, never together).
     try {
+      logStep('location_foreground: requesting');
       const { status: fgStatus } = await Location.requestForegroundPermissionsAsync();
+      logStep('location_foreground: done, status=' + fgStatus);
       if (fgStatus === 'granted') {
-        await Location.requestBackgroundPermissionsAsync();
+        logStep('settle_delay: waiting 400ms before background location');
+        await new Promise((resolve) => setTimeout(resolve, 400));
+        logStep('location_background: requesting');
+        const { status: bgStatus } = await Location.requestBackgroundPermissionsAsync();
+        logStep('location_background: done, status=' + bgStatus);
       }
     } catch (e) {
       console.warn('[Permissions] Location request failed:', e);
+      logStep('location: FAILED ' + (e as any)?.message);
     }
 
     // 4. Device Admin — required for a real OS-level lock (DevicePolicyManager
@@ -84,14 +123,20 @@ export default function WakeWordSetupScreen() {
     // in-app lockout screen instead of the actual Android lock screen.
     if (Platform.OS === 'android' && WakeWordModule?.isDeviceAdminActive) {
       try {
+        logStep('device_admin: checking status');
         const alreadyAdmin = await WakeWordModule.isDeviceAdminActive();
+        logStep('device_admin: already active = ' + alreadyAdmin);
         if (!alreadyAdmin) {
+          logStep('device_admin: requesting');
           WakeWordModule.requestDeviceAdmin();
         }
       } catch (e) {
         console.warn('[Permissions] Device admin request failed:', e);
+        logStep('device_admin: FAILED ' + (e as any)?.message);
       }
     }
+
+    logStep('requestAllPermissions: finished');
   }
 
   async function checkAndSetup() {
