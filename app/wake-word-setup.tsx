@@ -50,8 +50,7 @@ export default function WakeWordSetupScreen() {
       logStep('notifications: FAILED ' + (e as any)?.message);
     }
 
-    // 2. Microphone + phone state (Android 14 requires RECORD_AUDIO granted
-    // before startForeground() can be called with foregroundServiceType="microphone").
+    // 2. Microphone + phone state 
     if (Platform.OS === 'android') {
       try {
         logStep('mic: requesting');
@@ -86,7 +85,6 @@ export default function WakeWordSetupScreen() {
         console.warn('[Permissions] Phone state request failed:', e);
         logStep('phone_state: FAILED ' + (e as any)?.message);
       }
-
     }
 
     // 3. Location — foreground first, background second (Android requires
