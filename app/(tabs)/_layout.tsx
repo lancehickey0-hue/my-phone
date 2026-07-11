@@ -86,19 +86,34 @@ function HeartbeatManager() {
   useEffect(() => {
     if (wakeServiceStarted.current) return;
     if (Platform.OS !== 'android' || !WakeWordModule?.startService) return;
+    if (devices.length === 0) return;
 
-    const physicalId = (globalThis as any).__myPhoneDeviceId;
-    if (!physicalId || devices.length === 0) return;
+    let cancelled = false;
+    (async () => {
+      // physicalId is set asynchronously elsewhere (globalThis, not React
+      // state), so it may not exist yet even after `devices` has loaded —
+      // same race the GPS effect below already has to poll around.
+      let physicalId = (globalThis as any).__myPhoneDeviceId;
+      let attempts = 0;
+      while (!physicalId && attempts < 20 && !cancelled) {
+        await new Promise((r) => setTimeout(r, 500));
+        physicalId = (globalThis as any).__myPhoneDeviceId;
+        attempts++;
+      }
+      if (!physicalId || cancelled || wakeServiceStarted.current) return;
 
-    const myDevice = devices.find((d) => d.physicalDeviceId === physicalId);
-    if (!myDevice) return;
+      const myDevice = devices.find((d) => d.physicalDeviceId === physicalId);
+      if (!myDevice) return;
 
-    wakeServiceStarted.current = true;
-    const rawPhrase = (myDevice as any).customWakePhrase || (myDevice as any).wakePhrase || 'Hey, My-Phone, where are you?';
-    WakeWordModule.startService(JSON.stringify({
-      phrases: getPhraseVariants(rawPhrase),
-      physicalDeviceId: physicalId,
-    }));
+      wakeServiceStarted.current = true;
+      const rawPhrase = (myDevice as any).customWakePhrase || (myDevice as any).wakePhrase || 'Hey, My-Phone, where are you?';
+      WakeWordModule.startService(JSON.stringify({
+        phrases: getPhraseVariants(rawPhrase),
+        physicalDeviceId: physicalId,
+      }));
+    })();
+
+    return () => { cancelled = true; };
   }, [devices]);
 
   // GPS location tracking — update this device's location in Convex
