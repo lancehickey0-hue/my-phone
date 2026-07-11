@@ -26,6 +26,7 @@
       }
     },
     "android": {
+      "supportsTablet": true,
       "package": "com.myphone.app",
       "adaptiveIcon": {
         "foregroundImage": "./assets/icon1.png",
