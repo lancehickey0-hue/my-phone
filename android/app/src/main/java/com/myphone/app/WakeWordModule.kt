@@ -154,6 +154,16 @@ class WakeWordModule(private val reactContext: ReactApplicationContext) :
     override fun onHostResume() {
         if (!VoskModelManager.isModelReady(reactContext)) return
         if (reactContext.checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) return
+        // Only auto-restart if real (post-login) setup has completed at
+        // least once before — signaled by wake_phrases_json having been
+        // persisted, which only ever happens via the authenticated
+        // startService(configJson) call in (tabs)/_layout.tsx. Without this
+        // check, a system permission dialog closing during the initial
+        // pre-login setup flow (dialogs count as a resume event) could
+        // auto-start the service mid-flow, derailing whatever permission
+        // request comes next.
+        val prefs = reactContext.getSharedPreferences("myphone_prefs", android.content.Context.MODE_PRIVATE)
+        if (!prefs.contains("wake_phrases_json")) return
         startServiceInternal()
     }
 

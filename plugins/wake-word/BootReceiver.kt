@@ -20,6 +20,12 @@ class BootReceiver : BroadcastReceiver() {
                 return
             }
 
+            val prefs = context.getSharedPreferences("myphone_prefs", Context.MODE_PRIVATE)
+            if (!prefs.contains("wake_phrases_json")) {
+                Log.w("BootReceiver", "No real setup completed yet — skipping WakeWordService start on boot")
+                return
+            }
+
             Log.d("BootReceiver", "Device booted - starting WakeWordService")
             val serviceIntent = Intent(context, WakeWordService::class.java)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
