@@ -1,5 +1,5 @@
 import { getAuthUserId } from "@convex-dev/auth/server";
-import { mutation, query, action, internalAction, internalMutation } from "./_generated/server";
+import { mutation, query, action, internalAction, internalMutation, internalQuery } from "./_generated/server";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 
@@ -243,6 +243,22 @@ export const triggerAlarmByPhysicalId = internalMutation({
     });
 
     return null;
+  },
+});
+
+// Read a device's lock state by physicalDeviceId — polled by the native
+// WakeWordService so it can perform the real OS-level lock (lockNow) even
+// when the app's JS isn't alive. Scoped by physicalDeviceId, not user auth,
+// since the call originates from the device itself.
+export const getLockStateByPhysicalId = internalQuery({
+  args: { physicalDeviceId: v.string() },
+  returns: v.object({ isLocked: v.boolean() }),
+  handler: async (ctx, args) => {
+    const device = await ctx.db
+      .query("devices")
+      .withIndex("by_physicalDeviceId", (q) => q.eq("physicalDeviceId", args.physicalDeviceId))
+      .first();
+    return { isLocked: !!device?.isLocked };
   },
 });
 

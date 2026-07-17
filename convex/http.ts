@@ -42,4 +42,27 @@ http.route({
   }),
 });
 
+http.route({
+  path: "/deviceLockState",
+  method: "POST",
+  handler: httpAction(async (ctx, request) => {
+    const json = (obj: unknown) =>
+      new Response(JSON.stringify(obj), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    try {
+      const body = await request.json();
+      const physicalDeviceId = String(body.physicalDeviceId ?? "");
+      if (!physicalDeviceId) return json({ isLocked: false });
+      const state = await ctx.runQuery(internal.devices.getLockStateByPhysicalId, {
+        physicalDeviceId,
+      });
+      return json(state);
+    } catch (e) {
+      return json({ isLocked: false });
+    }
+  }),
+});
+
 export default http;
