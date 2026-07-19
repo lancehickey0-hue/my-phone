@@ -122,9 +122,20 @@ class WakeWordModule(private val reactContext: ReactApplicationContext) :
                     DevicePolicyManager.EXTRA_ADD_EXPLANATION,
                     "My-Phone needs this to remotely lock your device to Android's real lock screen when the alarm is triggered."
                 )
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
-            reactContext.startActivity(intent)
+            // Prefer launching from the actual foreground Activity -- starting
+            // this specific system settings screen via the application
+            // context with FLAG_ACTIVITY_NEW_TASK can silently fail to
+            // surface on some devices (no crash, no error, dialog just never
+            // appears). Falling back to the old NEW_TASK approach only if no
+            // current Activity is available at all.
+            val activity = reactContext.currentActivity
+            if (activity != null) {
+                activity.startActivity(intent)
+            } else {
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                reactContext.startActivity(intent)
+            }
         } catch (e: Exception) {
             e.printStackTrace()
         }
