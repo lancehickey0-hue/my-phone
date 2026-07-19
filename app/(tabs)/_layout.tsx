@@ -1,6 +1,6 @@
 import { Tabs } from 'expo-router';
 import React, { useEffect, useRef } from 'react';
-import { Image, Text, AppState, Platform, NativeModules } from 'react-native';
+import { Image, Text, AppState, Platform, NativeModules, PermissionsAndroid } from 'react-native';
 import { useQuery, useMutation } from 'convex/react';
 import * as Location from 'expo-location';
 import * as Notifications from 'expo-notifications';
@@ -104,6 +104,22 @@ function HeartbeatManager() {
 
       const myDevice = devices.find((d) => d.physicalDeviceId === physicalId);
       if (!myDevice) return;
+
+      // Defensive gate, not just assumed from timing: mic is requested in
+      // device-setup.tsx post-login, but startService() requires
+      // RECORD_AUDIO actually granted (Android 14 foregroundServiceType
+      // requirement) -- check for real rather than trusting screen order.
+      if (Platform.OS === 'android') {
+        const micGranted = await PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.RECORD_AUDIO);
+        if (!micGranted) {
+          fetch(`${process.env.EXPO_PUBLIC_CONVEX_SITE_URL || 'https://cheery-buffalo-947.convex.site'}/logDebug`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ source: 'WakeWordService', message: 'startService skipped -- RECORD_AUDIO not granted', level: 'error' }),
+          }).catch(() => {});
+          return;
+        }
+      }
 
       wakeServiceStarted.current = true;
       const rawPhrase = (myDevice as any).customWakePhrase || (myDevice as any).wakePhrase || 'Hey, My-Phone, where are you?';

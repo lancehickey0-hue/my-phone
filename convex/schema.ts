@@ -111,6 +111,7 @@ const schema = defineSchema({
    debugLogs: defineTable({
      source: v.string(), // e.g. "WakeWordService"
      message: v.string(),
+     level: v.optional(v.string()), // "info" | "warn" | "error" | "debug" — defaults to "info" if omitted
      timestamp: v.number(),
    })
      .index("by_timestamp", ["timestamp"]),

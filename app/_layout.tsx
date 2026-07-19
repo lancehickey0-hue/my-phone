@@ -207,9 +207,13 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
       }
     }
 
-    // Real, confirmed user — safe to enter the app now.
+    // Real, confirmed user — safe to enter the app now. Post-login
+    // permissions (notifications, mic, phone_state, device_admin) still
+    // need to be requested once per install — see device-setup.tsx.
     if (segments[0] === 'auth' || segments[0] === 'wake-word-setup') {
-      router.replace('/(tabs)');
+      SecureStore.getItemAsync('post_login_permissions_done').then((done) => {
+        router.replace(done === 'true' ? '/(tabs)' : '/device-setup');
+      });
     }
   }, [isAuthenticated, isLoading, currentUser, segments, setupChecked]);
 
@@ -233,6 +237,7 @@ export default function RootLayout() {
           <Stack.Screen name="auth" options={{ headerShown: false }} />
           <Stack.Screen name="lockout" options={{ headerShown: false, presentation: 'fullScreenModal' }} />
           <Stack.Screen name="wake-word-setup" options={{ headerShown: false }} />
+          <Stack.Screen name="device-setup" options={{ headerShown: false }} />
           <Stack.Screen name="voice-setup" options={{ headerShown: false, presentation: 'modal' }} />
           <Stack.Screen name="biometric-setup" options={{ headerShown: false, presentation: 'modal' }} />
           <Stack.Screen name="manage-users" options={{ headerShown: false, presentation: 'modal' }} />

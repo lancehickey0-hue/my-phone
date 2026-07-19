@@ -4,6 +4,8 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
+import android.app.admin.DevicePolicyManager
+import android.content.ComponentName
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
@@ -24,6 +26,8 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.concurrent.Executors
+import java.util.concurrent.ScheduledExecutorService
+import java.util.concurrent.TimeUnit
 
 class WakeWordService : Service() {
 
@@ -33,6 +37,13 @@ class WakeWordService : Service() {
 
     private val CONVEX_LOG_URL = "https://cheery-buffalo-947.convex.site/logDebug"
     private val CONVEX_TRIGGER_ALARM_URL = "https://cheery-buffalo-947.convex.site/triggerAlarmDevice"
+    private val CONVEX_LOCK_STATE_URL = "https://cheery-buffalo-947.convex.site/deviceLockState"
+
+    // How often the service checks Convex for a pending remote lock. Remote
+    // lock is JS-independent: the app is usually backgrounded/killed when it
+    // matters, so this always-on foreground service — not a React component —
+    // is what actually performs the OS lock.
+    private val LOCK_POLL_INTERVAL_SECONDS = 10L
 
     // Phrases are written by WakeWordModule.startService(configJson) — set
     // by JS from this device's own `wakePhrase`/`customWakePhrase` in
@@ -103,9 +114,20 @@ class WakeWordService : Service() {
     }
 
     private var voskHandler: VoskHandler? = null
-    private var isRunning = false
-    private var pausedForCall = false
+    @Volatile private var isRunning = false
+    @Volatile private var pausedForCall = false
+    // Guards against two initVosk() calls racing. onCreate() and
+    // onStartCommand() can both fire before the first init finishes and flips
+    // isRunning, which would otherwise spin up two SpeechServices fighting
+    // over the one microphone — leaving neither able to recognize cleanly.
+    private val voskInitializing = java.util.concurrent.atomic.AtomicBoolean(false)
     private val logExecutor = Executors.newSingleThreadExecutor()
+
+    // Remote-lock poller. Tracks the last observed lock state so lockNow()
+    // fires exactly once per false→true transition (not every poll), and
+    // re-arms once the device is unlocked again.
+    private var lockPoller: ScheduledExecutorService? = null
+    @Volatile private var lastLockState = false
 
     private var telephonyManager: TelephonyManager? = null
     private var legacyPhoneStateListener: PhoneStateListener? = null
@@ -121,7 +143,7 @@ class WakeWordService : Service() {
         }
     }
 
-    private fun logToConvex(message: String) {
+    private fun logToConvex(message: String, level: String = "info") {
         logExecutor.execute {
             try {
                 val url = URL(CONVEX_LOG_URL)
@@ -135,6 +157,7 @@ class WakeWordService : Service() {
                 val body = JSONObject()
                 body.put("source", "WakeWordService")
                 body.put("message", message)
+                body.put("level", level)
 
                 val writer = OutputStreamWriter(conn.outputStream)
                 writer.write(body.toString())
@@ -149,10 +172,10 @@ class WakeWordService : Service() {
         }
     }
 
-    private fun log(message: String) {
+    private fun log(message: String, level: String = "info") {
         Log.d(TAG, message)
         logToFile(message)
-        logToConvex(message)
+        logToConvex(message, level)
     }
 
     override fun onCreate() {
@@ -182,6 +205,75 @@ class WakeWordService : Service() {
             initVosk()
         } catch (e: Throwable) {
             log("Vosk init failed (non-fatal): " + e.message)
+        }
+        startLockPoller()
+    }
+
+    // ── Remote lock ─────────────────────────────────────────────────────────
+    // Polls Convex for this device's isLocked flag and performs the real
+    // OS-level lock natively. This is what makes remote lock work when the app
+    // is backgrounded or killed — the JS LockWatcher only runs while the app
+    // is alive, which is exactly when remote lock is NOT needed.
+    private fun startLockPoller() {
+        if (lockPoller != null) return
+        val executor = Executors.newSingleThreadScheduledExecutor()
+        lockPoller = executor
+        executor.scheduleWithFixedDelay(
+            { pollLockState() },
+            LOCK_POLL_INTERVAL_SECONDS,
+            LOCK_POLL_INTERVAL_SECONDS,
+            TimeUnit.SECONDS
+        )
+        log("Lock poller started (every ${LOCK_POLL_INTERVAL_SECONDS}s)")
+    }
+
+    private fun pollLockState() {
+        val physicalDeviceId = loadPhysicalDeviceId()
+        if (physicalDeviceId.isNullOrEmpty()) return
+        try {
+            val url = URL(CONVEX_LOCK_STATE_URL)
+            val conn = url.openConnection() as HttpURLConnection
+            conn.requestMethod = "POST"
+            conn.setRequestProperty("Content-Type", "application/json")
+            conn.doOutput = true
+            conn.connectTimeout = 5000
+            conn.readTimeout = 5000
+
+            val body = JSONObject().put("physicalDeviceId", physicalDeviceId)
+            val writer = OutputStreamWriter(conn.outputStream)
+            writer.write(body.toString())
+            writer.flush()
+            writer.close()
+
+            val code = conn.responseCode
+            val response = conn.inputStream.bufferedReader().use { it.readText() }
+            conn.disconnect()
+            if (code != 200) return
+
+            val isLocked = JSONObject(response).optBoolean("isLocked", false)
+            // Only act on the false→true edge; re-arm once unlocked.
+            if (isLocked && !lastLockState) {
+                log("Remote lock detected — locking device via DevicePolicyManager")
+                lockDeviceNow()
+            }
+            lastLockState = isLocked
+        } catch (e: Throwable) {
+            log("pollLockState failed (non-fatal): " + e.message)
+        }
+    }
+
+    private fun lockDeviceNow() {
+        try {
+            val dpm = getSystemService(DEVICE_POLICY_SERVICE) as DevicePolicyManager
+            val admin = ComponentName(this, LockDeviceAdminReceiver::class.java)
+            if (!dpm.isAdminActive(admin)) {
+                log("Cannot lock — device admin not active")
+                return
+            }
+            dpm.lockNow()
+            log("lockNow() succeeded")
+        } catch (e: Throwable) {
+            log("lockNow() failed: " + e.message)
         }
     }
 
@@ -282,6 +374,16 @@ class WakeWordService : Service() {
     }
 
     private fun initVosk() {
+        if (isRunning) {
+            log("initVosk() skipped — already running")
+            return
+        }
+        // Only one init may proceed; a concurrent caller bails immediately
+        // instead of starting a second mic-grabbing SpeechService.
+        if (!voskInitializing.compareAndSet(false, true)) {
+            log("initVosk() skipped — initialization already in progress")
+            return
+        }
         Thread {
             try {
                 log("initVosk() thread started")
@@ -291,15 +393,25 @@ class WakeWordService : Service() {
                 }
                 log("Vosk model is ready, initializing VoskHandler")
                 val modelDir = File(filesDir, "vosk-model")
-                voskHandler = VoskHandler(this, modelDir.absolutePath, loadWakePhrases()) {
-                    log("*** WAKE PHRASE DETECTED ***")
-                    emitWakeWordDetected()
-                }
+                val phrases = loadWakePhrases()
+                log("Listening for phrases: " + phrases.joinToString(" | "))
+                voskHandler = VoskHandler(
+                    this,
+                    modelDir.absolutePath,
+                    phrases,
+                    {
+                        log("*** WAKE PHRASE DETECTED ***")
+                        emitWakeWordDetected()
+                    },
+                    { heard -> log(heard) }
+                )
                 voskHandler?.start()
                 isRunning = true
                 log("Vosk wake word service started successfully — actively listening")
             } catch (e: Throwable) {
                 log("Failed to initialize Vosk: " + e.message + " | " + e.stackTraceToString())
+            } finally {
+                voskInitializing.set(false)
             }
         }.start()
     }
@@ -354,6 +466,8 @@ class WakeWordService : Service() {
         super.onDestroy()
         log("onDestroy() called — service stopping")
         isRunning = false
+        lockPoller?.shutdownNow()
+        lockPoller = null
         unregisterCallStateWatcher()
         try {
             voskHandler?.stop()

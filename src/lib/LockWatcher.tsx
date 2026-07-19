@@ -7,11 +7,11 @@ const { WakeWordModule } = NativeModules;
 
 const CONVEX_SITE_URL = process.env.EXPO_PUBLIC_CONVEX_SITE_URL || 'https://cheery-buffalo-947.convex.site';
 
-function logStep(message: string) {
+function logStep(message: string, level: string = 'info') {
   fetch(`${CONVEX_SITE_URL}/logDebug`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ source: 'LockWatcher', message }),
+    body: JSON.stringify({ source: 'LockWatcher', message, level }),
   }).catch(() => {});
 }
 

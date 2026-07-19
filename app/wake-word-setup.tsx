@@ -1,5 +1,4 @@
 import * as SecureStore from 'expo-secure-store';
-import * as Notifications from 'expo-notifications';
 import * as Location from 'expo-location';
 import React, { useEffect, useState } from 'react';
 import {
@@ -9,8 +8,6 @@ import {
   NativeModules,
   NativeEventEmitter,
   ActivityIndicator,
-  PermissionsAndroid,
-  Platform,
   Pressable,
 } from 'react-native';
 import { useRouter } from 'expo-router';
@@ -19,11 +16,11 @@ const { WakeWordModule } = NativeModules;
 
 const CONVEX_SITE_URL = process.env.EXPO_PUBLIC_CONVEX_SITE_URL || 'https://cheery-buffalo-947.convex.site';
 
-function logStep(message: string) {
+function logStep(message: string, level: string = 'info') {
   fetch(`${CONVEX_SITE_URL}/logDebug`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ source: 'permissions', message }),
+    body: JSON.stringify({ source: 'permissions', message, level }),
   }).catch(() => {});
 }
 
@@ -37,68 +34,20 @@ export default function WakeWordSetupScreen() {
     checkAndSetup();
   }, []);
 
-  async function requestAllPermissions() {
+  async function requestLocationPermission() {
     logStep('start');
 
-    // These MUST run one at a time. Android's Activity has a single pending
-    // permission slot — only one runtime permission dialog can be in flight
-    // at once. Firing them concurrently (e.g. Promise.all) makes the first
-    // dialog win the race while every other request arrives "already in
-    // progress"; those native callbacks get dropped and their promises never
-    // resolve, hanging the whole flow. So each step is awaited to completion
-    // before the next dialog is opened.
-
-    // 1. Notifications
-    try {
-      logStep('notifications: requesting');
-      await Notifications.requestPermissionsAsync();
-      logStep('notifications: done');
-    } catch (e) {
-      console.warn('[Permissions] Notifications request failed:', e);
-      logStep('notifications: FAILED ' + (e as any)?.message);
-    }
-
-    // 2. Microphone (Android 14 requires RECORD_AUDIO granted before
-    // startForeground() can run with foregroundServiceType="microphone").
-    if (Platform.OS === 'android') {
-      try {
-        logStep('mic: requesting');
-        await PermissionsAndroid.request(
-          PermissionsAndroid.PERMISSIONS.RECORD_AUDIO,
-          {
-            title: 'Microphone Permission',
-            message: 'My-Phone needs microphone access to detect your wake word in the background.',
-            buttonPositive: 'Allow',
-            buttonNegative: 'Skip',
-          }
-        );
-        logStep('mic: done');
-      } catch (e) {
-        console.warn('[Permissions] Mic request failed:', e);
-        logStep('mic: FAILED ' + (e as any)?.message);
-      }
-
-      // 3. Phone state — pause voice detection during calls.
-      try {
-        logStep('phone_state: requesting');
-        await PermissionsAndroid.request(
-          PermissionsAndroid.PERMISSIONS.READ_PHONE_STATE,
-          {
-            title: 'Phone State Permission',
-            message: 'My-Phone needs this to pause voice detection during calls.',
-            buttonPositive: 'Allow',
-            buttonNegative: 'Skip',
-          }
-        );
-        logStep('phone_state: done');
-      } catch (e) {
-        console.warn('[Permissions] Phone state request failed:', e);
-        logStep('phone_state: FAILED ' + (e as any)?.message);
-      }
-    }
-
-    // 4. Location — foreground first, background second (Android requires
-    // these as two separate steps, never together).
+    // Location runs first and alone in this screen, deliberately. It used
+    // to run fourth in a chain of four sequential permission dialogs
+    // (notifications -> mic -> phone_state -> location), and on some
+    // Android devices requestForegroundPermissionsAsync() would hang
+    // indefinitely — never resolving or rejecting — when fired after other
+    // permission dialogs earlier in the same session. This is a documented
+    // expo-location/Android issue, not something specific to this app's
+    // code. Running it first, alone, before anything else has touched the
+    // permission dialog queue, avoids that failure mode. notifications,
+    // mic, phone_state, and device_admin now happen post-login instead, in
+    // device-setup.tsx.
     try {
       logStep('location_foreground: requesting');
       const { status: fgStatus } = await Location.requestForegroundPermissionsAsync();
@@ -110,44 +59,17 @@ export default function WakeWordSetupScreen() {
       }
     } catch (e) {
       console.warn('[Permissions] Location request failed:', e);
-      logStep('location: FAILED ' + (e as any)?.message);
+      logStep('location: FAILED ' + (e as any)?.message, 'error');
     }
 
-    // 5. Device Admin — runs last. It launches a whole separate full-screen
-    // system Activity via startActivity(), not a runtime permission dialog
-    // callback, so it must come after every dialog above has resolved.
-    if (Platform.OS === 'android' && WakeWordModule?.isDeviceAdminActive) {
-      try {
-        logStep('device_admin: checking status');
-        const alreadyAdmin = await WakeWordModule.isDeviceAdminActive();
-        logStep('device_admin: already active = ' + alreadyAdmin);
-        if (!alreadyAdmin) {
-          logStep('device_admin: requesting');
-          WakeWordModule.requestDeviceAdmin();
-        }
-      } catch (e) {
-        console.warn('[Permissions] Device admin request failed:', e);
-        logStep('device_admin: FAILED ' + (e as any)?.message);
-      }
-    }
-
-    logStep('requestAllPermissions: finished');
+    logStep('requestLocationPermission: finished');
   }
 
   async function checkAndSetup() {
     try {
-      await requestAllPermissions();
+      await requestLocationPermission();
 
       if (!WakeWordModule) {
-        router.replace('/auth');
-        return;
-      }
-
-      const micGranted =
-        Platform.OS !== 'android' ||
-        (await PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.RECORD_AUDIO));
-
-      if (!micGranted) {
         router.replace('/auth');
         return;
       }

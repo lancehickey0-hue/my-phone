@@ -1,6 +1,6 @@
 import { httpRouter } from "convex/server";
 import { httpAction } from "./_generated/server";
-import { internal } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 import { auth } from "./auth";
 
 const http = httpRouter();
@@ -15,6 +15,7 @@ http.route({
       await ctx.runMutation(internal.debugLogs.add, {
         source: String(body.source ?? "unknown"),
         message: String(body.message ?? ""),
+        level: body.level ? String(body.level) : undefined,
       });
     } catch (e) {
       // Never let a malformed debug log crash the endpoint
@@ -62,6 +63,91 @@ http.route({
     } catch (e) {
       return json({ isLocked: false });
     }
+  }),
+});
+
+http.route({
+  path: "/debugLogs",
+  method: "GET",
+  handler: httpAction(async (ctx, request) => {
+    const url = new URL(request.url);
+    const key = url.searchParams.get("projectKey");
+
+    if (!key || key !== process.env.DASHBOARD_KEY) {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), {
+        status: 401,
+        headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
+      });
+    }
+
+    const logs = await ctx.runQuery(api.debugLogs.recent, {});
+
+    const shaped = logs.map((log) => ({
+      timestamp: log.timestamp,
+      level: log.level ?? "info",
+      source: log.source,
+      message: log.message,
+      metadata: undefined,
+    }));
+
+    return new Response(JSON.stringify({ logs: shaped }), {
+      status: 200,
+      headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
+    });
+  }),
+});
+
+http.route({
+  path: "/debugLogs",
+  method: "OPTIONS",
+  handler: httpAction(async () => {
+    return new Response(null, {
+      status: 204,
+      headers: {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "GET, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type, Authorization",
+      },
+    });
+  }),
+});
+
+http.route({
+  path: "/debugSources",
+  method: "GET",
+  handler: httpAction(async (ctx, request) => {
+    const url = new URL(request.url);
+    const key = url.searchParams.get("projectKey");
+
+    if (!key || key !== process.env.DASHBOARD_KEY) {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), {
+        status: 401,
+        headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
+      });
+    }
+
+    const logs = await ctx.runQuery(api.debugLogs.recent, {});
+    const sources = Array.from(new Set(logs.map((l) => l.source)));
+
+    return new Response(JSON.stringify({ sources }), {
+      status: 200,
+      headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
+    });
+  }),
+});
+
+http.route({
+  path: "/debugSources",
+  method: "OPTIONS",
+  handler: httpAction(async () => {
+    return new Response(null, {
+      status: 204,
+      headers: {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "GET, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type, Authorization",
+      },
+    });
   }),
 });
 

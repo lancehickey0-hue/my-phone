@@ -60,7 +60,7 @@ class WakeWordService : Service() {
                 listOf("hey my phone where are you", "hey my phone", "my phone where are you")
             }
         } catch (e: Exception) {
-            log("Failed to load wake phrases, using default: " + e.message)
+            log("Failed to load wake phrases, using default: " + e.message, "warn")
             listOf("hey my phone where are you", "hey my phone", "my phone where are you")
         }
     }
@@ -83,7 +83,7 @@ class WakeWordService : Service() {
     private fun triggerAlarmNative() {
         val physicalDeviceId = loadPhysicalDeviceId()
         if (physicalDeviceId.isNullOrEmpty()) {
-            log("Cannot trigger alarm natively — no physicalDeviceId persisted yet")
+            log("Cannot trigger alarm natively — no physicalDeviceId persisted yet", "warn")
             return
         }
         logExecutor.execute {
@@ -108,7 +108,7 @@ class WakeWordService : Service() {
                 conn.disconnect()
                 log("triggerAlarmNative HTTP response: $code")
             } catch (e: Throwable) {
-                log("triggerAlarmNative failed: " + e.message)
+                log("triggerAlarmNative failed: " + e.message, "error")
             }
         }
     }
@@ -143,7 +143,7 @@ class WakeWordService : Service() {
         }
     }
 
-    private fun logToConvex(message: String) {
+    private fun logToConvex(message: String, level: String = "info") {
         logExecutor.execute {
             try {
                 val url = URL(CONVEX_LOG_URL)
@@ -157,6 +157,7 @@ class WakeWordService : Service() {
                 val body = JSONObject()
                 body.put("source", "WakeWordService")
                 body.put("message", message)
+                body.put("level", level)
 
                 val writer = OutputStreamWriter(conn.outputStream)
                 writer.write(body.toString())
@@ -171,10 +172,10 @@ class WakeWordService : Service() {
         }
     }
 
-    private fun log(message: String) {
+    private fun log(message: String, level: String = "info") {
         Log.d(TAG, message)
         logToFile(message)
-        logToConvex(message)
+        logToConvex(message, level)
     }
 
     override fun onCreate() {
@@ -182,7 +183,7 @@ class WakeWordService : Service() {
         log("onCreate() called")
         createNotificationChannel()
         if (checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
-            log("RECORD_AUDIO not granted — service cannot start yet")
+            log("RECORD_AUDIO not granted — service cannot start yet", "error")
             stopSelf()
             return
         }
@@ -203,7 +204,7 @@ class WakeWordService : Service() {
         try {
             initVosk()
         } catch (e: Throwable) {
-            log("Vosk init failed (non-fatal): " + e.message)
+            log("Vosk init failed (non-fatal): " + e.message, "warn")
         }
         startLockPoller()
     }
@@ -257,7 +258,7 @@ class WakeWordService : Service() {
             }
             lastLockState = isLocked
         } catch (e: Throwable) {
-            log("pollLockState failed (non-fatal): " + e.message)
+            log("pollLockState failed (non-fatal): " + e.message, "warn")
         }
     }
 
@@ -266,13 +267,13 @@ class WakeWordService : Service() {
             val dpm = getSystemService(DEVICE_POLICY_SERVICE) as DevicePolicyManager
             val admin = ComponentName(this, LockDeviceAdminReceiver::class.java)
             if (!dpm.isAdminActive(admin)) {
-                log("Cannot lock — device admin not active")
+                log("Cannot lock — device admin not active", "error")
                 return
             }
             dpm.lockNow()
             log("lockNow() succeeded")
         } catch (e: Throwable) {
-            log("lockNow() failed: " + e.message)
+            log("lockNow() failed: " + e.message, "error")
         }
     }
 
@@ -282,7 +283,7 @@ class WakeWordService : Service() {
             try {
                 initVosk()
             } catch (e: Throwable) {
-                log("Vosk re-init failed: " + e.message)
+                log("Vosk re-init failed: " + e.message, "error")
             }
         }
         return START_STICKY
@@ -296,13 +297,13 @@ class WakeWordService : Service() {
     // starts, and only resume listening once the call has fully ended.
     private fun registerCallStateWatcher() {
         if (checkSelfPermission(android.Manifest.permission.READ_PHONE_STATE) != PackageManager.PERMISSION_GRANTED) {
-            log("READ_PHONE_STATE not granted — cannot watch call state, wake word will NOT pause during calls")
+            log("READ_PHONE_STATE not granted — cannot watch call state, wake word will NOT pause during calls", "warn")
             return
         }
 
         telephonyManager = getSystemService(TELEPHONY_SERVICE) as? TelephonyManager
         if (telephonyManager == null) {
-            log("TelephonyManager unavailable — cannot watch call state")
+            log("TelephonyManager unavailable — cannot watch call state", "warn")
             return
         }
 
@@ -330,7 +331,7 @@ class WakeWordService : Service() {
                 log("Registered legacy PhoneStateListener for call state")
             }
         } catch (e: Throwable) {
-            log("Failed to register call state watcher: " + e.message)
+            log("Failed to register call state watcher: " + e.message, "warn")
         }
     }
 
@@ -356,7 +357,7 @@ class WakeWordService : Service() {
             try {
                 voskHandler?.stop()
             } catch (e: Throwable) {
-                log("Error pausing Vosk for call: " + e.message)
+                log("Error pausing Vosk for call: " + e.message, "warn")
             }
             voskHandler = null
             isRunning = false
@@ -367,7 +368,7 @@ class WakeWordService : Service() {
             try {
                 initVosk()
             } catch (e: Throwable) {
-                log("Failed to resume Vosk after call: " + e.message)
+                log("Failed to resume Vosk after call: " + e.message, "error")
             }
         }
     }
@@ -408,7 +409,7 @@ class WakeWordService : Service() {
                 isRunning = true
                 log("Vosk wake word service started successfully — actively listening")
             } catch (e: Throwable) {
-                log("Failed to initialize Vosk: " + e.message + " | " + e.stackTraceToString())
+                log("Failed to initialize Vosk: " + e.message + " | " + e.stackTraceToString(), "error")
             } finally {
                 voskInitializing.set(false)
             }

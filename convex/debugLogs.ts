@@ -5,12 +5,14 @@ export const add = internalMutation({
   args: {
     source: v.string(),
     message: v.string(),
+    level: v.optional(v.string()),
   },
   returns: v.null(),
   handler: async (ctx, args) => {
     await ctx.db.insert("debugLogs", {
       source: args.source,
       message: args.message,
+      level: args.level ?? "info",
       timestamp: Date.now(),
     });
     return null;
@@ -25,6 +27,7 @@ export const recent = query({
       _creationTime: v.number(),
       source: v.string(),
       message: v.string(),
+      level: v.optional(v.string()),
       timestamp: v.number(),
     })
   ),
