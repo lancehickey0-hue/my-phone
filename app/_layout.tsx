@@ -19,6 +19,45 @@ const nativeStorage = Platform.OS !== 'web' ? {
   removeItem: SecureStore.deleteItemAsync,
 } : undefined;
 
+// -- Global error/crash logging --------------------------------------------
+// Catches anything that isn't already explicitly logged elsewhere: uncaught
+// JS exceptions and unhandled promise rejections, app-wide, regardless of
+// auth state. Runs once at module load. Doesn't replace the existing crash
+// UI/behavior (the original handler still runs after logging) -- just also
+// reports it to Convex so it shows up in the dashboard instead of silently
+// vanishing. This is what would have caught tonight's JWT_PRIVATE_KEY
+// sign-in crash automatically, without needing to manually instrument the
+// auth code that threw it.
+const GLOBAL_ERROR_CONVEX_URL = process.env.EXPO_PUBLIC_CONVEX_SITE_URL || 'https://cheery-buffalo-947.convex.site';
+
+function logGlobalError(message: string) {
+  fetch(`${GLOBAL_ERROR_CONVEX_URL}/logDebug`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ source: 'GlobalError', message, level: 'error' }),
+  }).catch(() => {});
+}
+
+const rnGlobal = global as any;
+const defaultErrorHandler = rnGlobal.ErrorUtils?.getGlobalHandler?.();
+rnGlobal.ErrorUtils?.setGlobalHandler?.((error: any, isFatal?: boolean) => {
+  logGlobalError(
+    (isFatal ? 'FATAL: ' : 'non-fatal: ') +
+    (error?.message ?? String(error)) +
+    (error?.stack ? ' | ' + error.stack : '')
+  );
+  defaultErrorHandler?.(error, isFatal);
+});
+
+rnGlobal.addEventListener?.('unhandledRejection', (event: any) => {
+  const reason = event?.reason;
+  logGlobalError(
+    'Unhandled promise rejection: ' +
+    (reason?.message ?? String(reason)) +
+    (reason?.stack ? ' | ' + reason.stack : '')
+  );
+});
+
 function AuthGuard({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, isLoading } = useConvexAuth();
   const { signOut } = useAuthActions();
