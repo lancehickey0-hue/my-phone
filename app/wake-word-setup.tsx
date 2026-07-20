@@ -11,6 +11,7 @@ import {
   Pressable,
 } from 'react-native';
 import { useRouter } from 'expo-router';
+import { startBackgroundLocationTracking } from '../src/lib/BackgroundLocation';
 
 const { WakeWordModule } = NativeModules;
 
@@ -56,6 +57,9 @@ export default function WakeWordSetupScreen() {
         logStep('location_background: requesting');
         const { status: bgStatus } = await Location.requestBackgroundPermissionsAsync();
         logStep('location_background: done, status=' + bgStatus);
+        if (bgStatus === 'granted') {
+          await startBackgroundLocationTracking();
+        }
       }
     } catch (e) {
       console.warn('[Permissions] Location request failed:', e);

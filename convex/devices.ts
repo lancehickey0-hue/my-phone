@@ -246,6 +246,36 @@ export const triggerAlarmByPhysicalId = internalMutation({
   },
 });
 
+// Update a device's location by physicalDeviceId — called from the native
+// background location task (src/lib/BackgroundLocation.ts), which has no
+// user session available since it can run headless while the app is
+// backgrounded or killed. Scoped by physicalDeviceId, not user auth, same
+// pattern as triggerAlarmByPhysicalId above.
+export const updateLocationByPhysicalId = internalMutation({
+  args: {
+    physicalDeviceId: v.string(),
+    latitude: v.number(),
+    longitude: v.number(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const device = await ctx.db
+      .query("devices")
+      .withIndex("by_physicalDeviceId", (q) => q.eq("physicalDeviceId", args.physicalDeviceId))
+      .first();
+    if (!device) return null;
+
+    await ctx.db.patch(device._id, {
+      lastLatitude: args.latitude,
+      lastLongitude: args.longitude,
+      lastSeenAt: Date.now(),
+      status: "connected",
+    });
+
+    return null;
+  },
+});
+
 // Read a device's lock state by physicalDeviceId — polled by the native
 // WakeWordService so it can perform the real OS-level lock (lockNow) even
 // when the app's JS isn't alive. Scoped by physicalDeviceId, not user auth,

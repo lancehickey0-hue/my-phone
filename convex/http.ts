@@ -66,6 +66,31 @@ http.route({
   }),
 });
 
+// Called from the native background location task (src/lib/BackgroundLocation.ts)
+// -- fire-and-forget, no response body needed, same style as /triggerAlarmDevice.
+http.route({
+  path: "/updateDeviceLocation",
+  method: "POST",
+  handler: httpAction(async (ctx, request) => {
+    try {
+      const body = await request.json();
+      const physicalDeviceId = String(body.physicalDeviceId ?? "");
+      const latitude = Number(body.latitude);
+      const longitude = Number(body.longitude);
+      if (physicalDeviceId && Number.isFinite(latitude) && Number.isFinite(longitude)) {
+        await ctx.runMutation(internal.devices.updateLocationByPhysicalId, {
+          physicalDeviceId,
+          latitude,
+          longitude,
+        });
+      }
+    } catch (e) {
+      // Never let a malformed background location update crash the endpoint
+    }
+    return new Response(null, { status: 200 });
+  }),
+});
+
 http.route({
   path: "/debugLogs",
   method: "GET",
