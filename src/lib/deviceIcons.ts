@@ -42,12 +42,14 @@ export function normalizeWakePhrase(raw: string): string {
 // you") but works for any device type or user-customized phrase.
 export function getPhraseVariants(rawPhrase: string): string[] {
   const full = normalizeWakePhrase(rawPhrase);
-  const variants = new Set<string>([full]);
-
-  const shortMatch = full.match(/^(hey my [a-z]+)\b/);
-  if (shortMatch) variants.add(shortMatch[1]);
-
-  if (full.startsWith('hey ')) variants.add(full.slice(4));
-
-  return Array.from(variants);
+  // Only the full, distinctive phrase is used as a valid match -- short
+  // variants ("hey my tablet", "tablet where are you") were removed because
+  // Vosk's grammar-constrained recognizer forces ambiguous audio (TV/video
+  // dialogue, background speech) into the closest available option in its
+  // vocabulary, and short generic phrases are far more likely to
+  // phonetically resemble random speech than the full phrase is. This is a
+  // stopgap harm-reduction fix -- real speaker verification (matching the
+  // enrolled user's actual voice, not just the words) is a separate,
+  // larger project.
+  return [full];
 }

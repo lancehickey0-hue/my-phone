@@ -57,11 +57,11 @@ class WakeWordService : Service() {
                 val arr = org.json.JSONArray(json)
                 (0 until arr.length()).map { arr.getString(it).lowercase().trim() }
             } else {
-                listOf("hey my phone where are you", "hey my phone", "my phone where are you")
+                listOf("hey my phone where are you")
             }
         } catch (e: Exception) {
             log("Failed to load wake phrases, using default: " + e.message, "warn")
-            listOf("hey my phone where are you", "hey my phone", "my phone where are you")
+            listOf("hey my phone where are you")
         }
     }
 
