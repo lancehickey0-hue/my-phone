@@ -1,5 +1,5 @@
 import { useMutation, useQuery } from 'convex/react';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Alert,
   Modal,
@@ -32,6 +32,30 @@ export default function DevicesTab() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [newDeviceName, setNewDeviceName] = useState('');
   const [newDeviceType, setNewDeviceType] = useState<DeviceType>('phone');
+  const [currentPhysicalDeviceId, setCurrentPhysicalDeviceId] = useState('');
+
+  // Resolved once per app session -- same fallback chain used everywhere else
+  // (app/_layout.tsx, src/lib/BackgroundLocation.ts) so "Mine" comparisons are
+  // consistent regardless of where the ID gets computed.
+  useEffect(() => {
+    (async () => {
+      let physicalDeviceId = Application.androidId ?? '';
+      if (!physicalDeviceId) {
+        const stored = await SecureStore.getItemAsync('device_uuid');
+        if (stored) {
+          physicalDeviceId = stored;
+        } else {
+          const uuid = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+            const r = Math.random() * 16 | 0;
+            return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+          });
+          await SecureStore.setItemAsync('device_uuid', uuid);
+          physicalDeviceId = uuid;
+        }
+      }
+      setCurrentPhysicalDeviceId(physicalDeviceId);
+    })();
+  }, []);
 
   async function handleAddDevice() {
     if (!newDeviceName.trim()) return;
@@ -140,29 +164,29 @@ export default function DevicesTab() {
                 </Pressable>
               )}
 
-              {!(device as any).physicalDeviceId && (
+              {currentPhysicalDeviceId && (device as any).physicalDeviceId !== currentPhysicalDeviceId && (
                 <Pressable
                   style={[styles.actionBtn, styles.actionSetDevice]}
-                  onPress={async () => {
-                    try {
-                      let physicalDeviceId = Application.androidId ?? '';
-                      if (!physicalDeviceId) {
-                        const stored = await SecureStore.getItemAsync('device_uuid');
-                        if (stored) {
-                          physicalDeviceId = stored;
-                        } else {
-                          const uuid = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
-                            const r = Math.random() * 16 | 0;
-                            return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
-                          });
-                          await SecureStore.setItemAsync('device_uuid', uuid);
-                          physicalDeviceId = uuid;
-                        }
+                  onPress={() => {
+                    const doClaim = async () => {
+                      try {
+                        await registerPhysicalDevice({ deviceId: device._id, physicalDeviceId: currentPhysicalDeviceId });
+                        Alert.alert('✅ Done', `This device is now "${device.name}".`);
+                      } catch (e: any) {
+                        Alert.alert('Error', e.message);
                       }
-                      await registerPhysicalDevice({ deviceId: device._id, physicalDeviceId });
-                      Alert.alert('✅ Done', `This device is now "${device.name}".`);
-                    } catch (e: any) {
-                      Alert.alert('Error', e.message);
+                    };
+                    if ((device as any).physicalDeviceId) {
+                      Alert.alert(
+                        'Re-link this device?',
+                        `"${device.name}" is already linked to a different install. Linking it to this one will replace that connection.`,
+                        [
+                          { text: 'Cancel', style: 'cancel' },
+                          { text: 'Re-link', style: 'destructive', onPress: doClaim },
+                        ]
+                      );
+                    } else {
+                      doClaim();
                     }
                   }}
                 >

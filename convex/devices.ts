@@ -263,7 +263,18 @@ export const updateLocationByPhysicalId = internalMutation({
       .query("devices")
       .withIndex("by_physicalDeviceId", (q) => q.eq("physicalDeviceId", args.physicalDeviceId))
       .first();
-    if (!device) return null;
+    if (!device) {
+      // Diagnostic for a mismatch class of bug: the background task resolved
+      // a physicalDeviceId that doesn't match any registered device, so this
+      // write was a silent no-op. Logging it here surfaces the exact
+      // mismatched ID in Log Deck instead of vanishing with zero trace.
+      await ctx.runMutation(internal.debugLogs.add, {
+        source: "BackgroundLocation",
+        message: "no device matched physicalDeviceId=" + args.physicalDeviceId,
+        level: "error",
+      });
+      return null;
+    }
 
     await ctx.db.patch(device._id, {
       lastLatitude: args.latitude,
