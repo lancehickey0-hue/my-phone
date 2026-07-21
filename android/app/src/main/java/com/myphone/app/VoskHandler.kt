@@ -73,16 +73,13 @@ class VoskHandler(
     }
 
     override fun onPartialResult(hypothesis: String?) {
-        if (hypothesis == null) return
-        try {
-            val text = JSONObject(hypothesis).optString("partial", "").lowercase().trim()
-            if (text.isNotEmpty() && matchesWakePhrase(text) && !hasTriggeredThisUtterance) {
-                hasTriggeredThisUtterance = true
-                onWakeWordDetected()
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error parsing partial: " + e.message)
-        }
+        // Deliberately does not trigger the wake word here. Vosk's partial
+        // results are a live, unstable guess made while speech is still in
+        // progress -- the recognizer can predict ahead of what's actually
+        // been said, which let short/incomplete utterances (e.g. "hey my")
+        // fire the alarm and lock before the full phrase was spoken. Only
+        // onResult/onFinalResult (the stabilized, completed utterance) is
+        // allowed to trigger.
     }
 
     override fun onFinalResult(hypothesis: String?) {
