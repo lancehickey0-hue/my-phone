@@ -156,6 +156,7 @@ function withWakeWordService(config) {
         'WakeWordPackage.kt',
         'BootReceiver.kt',
         'VoskModelManager.kt',
+        'VoskSpeakerModelManager.kt',
         'VoskHandler.kt',
         'LockDeviceAdminReceiver.kt',
       ]) {

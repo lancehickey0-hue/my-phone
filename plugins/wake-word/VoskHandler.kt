@@ -4,6 +4,7 @@ import android.util.Log
 import org.json.JSONObject
 import org.vosk.Model
 import org.vosk.Recognizer
+import org.vosk.SpeakerModel
 import org.vosk.android.RecognitionListener
 import org.vosk.android.SpeechService
 
@@ -15,11 +16,22 @@ class VoskHandler(
     // Optional diagnostic hook — receives every final transcription, matched
     // or not, so the service can log what Vosk actually heard. Essential for
     // seeing near-misses ("hey my fone") when detection appears to do nothing.
-    private val onDebug: ((String) -> Unit)? = null
+    private val onDebug: ((String) -> Unit)? = null,
+    // Optional: path to Vosk's speaker-identification model (separate from
+    // the ASR model above, ~13MB, same vendor). When provided, the
+    // recognizer also extracts an x-vector (voice fingerprint) alongside
+    // the transcription -- delivered via onSpeakerVector at the exact
+    // moment the wake phrase matches. This is what makes real speaker
+    // verification possible, not just keyword matching. If null, or if
+    // loading fails, wake-word detection still works exactly as before --
+    // this is additive, never a hard dependency.
+    private val speakerModelPath: String? = null,
+    private val onSpeakerVector: ((FloatArray, Int) -> Unit)? = null
 ) : RecognitionListener {
 
     private val TAG = "VoskHandler"
     private var model: Model? = null
+    private var speakerModel: SpeakerModel? = null
     private var speechService: SpeechService? = null
 
     // A single spoken utterance produces many onPartialResult calls as Vosk
@@ -44,6 +56,16 @@ class VoskHandler(
         } else {
             Recognizer(model, 16000.0f)
         }
+
+        if (!speakerModelPath.isNullOrEmpty()) {
+            try {
+                speakerModel = SpeakerModel(speakerModelPath)
+                recognizer.setSpkModel(speakerModel)
+            } catch (e: Throwable) {
+                Log.e(TAG, "Failed to load speaker model (non-fatal, verification disabled): " + e.message)
+            }
+        }
+
         speechService = SpeechService(recognizer, 16000.0f)
         speechService?.startListening(this)
     }
@@ -53,15 +75,30 @@ class VoskHandler(
         speechService = null
         model?.close()
         model = null
+        speakerModel?.close()
+        speakerModel = null
     }
 
     override fun onResult(hypothesis: String?) {
         if (hypothesis == null) return
         try {
-            val text = JSONObject(hypothesis).optString("text", "").lowercase().trim()
+            val json = JSONObject(hypothesis)
+            val text = json.optString("text", "").lowercase().trim()
             if (text.isNotEmpty()) onDebug?.invoke("heard(final): '$text'")
             if (text.isNotEmpty() && matchesWakePhrase(text) && !hasTriggeredThisUtterance) {
                 hasTriggeredThisUtterance = true
+
+                if (json.has("spk") && onSpeakerVector != null) {
+                    try {
+                        val spkArray = json.getJSONArray("spk")
+                        val vector = FloatArray(spkArray.length()) { i -> spkArray.getDouble(i).toFloat() }
+                        val frames = json.optInt("spk_frames", 0)
+                        onSpeakerVector.invoke(vector, frames)
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error parsing spk vector: " + e.message)
+                    }
+                }
+
                 onWakeWordDetected()
             }
         } catch (e: Exception) {

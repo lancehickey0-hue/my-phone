@@ -79,8 +79,17 @@ const schema = defineSchema({
     deviceId: v.id("devices"),
     isEnrolled: v.boolean(),
     enrolledAt: v.optional(v.number()),
-    sampleCount: v.number(), // 3 samples required
+    sampleCount: v.number(), // 5 samples required
     wakePhrase: v.string(), // the phrase trained for this specific device
+    // Real speaker verification data. Each sample's x-vector (voice
+    // fingerprint) from Vosk's speaker-identification model, kept
+    // individually so the reference can be recomputed without re-recording
+    // if the averaging approach ever changes.
+    sampleVectors: v.optional(v.array(v.array(v.number()))),
+    // Element-wise average of all sampleVectors -- this is what gets
+    // compared (via cosine distance) against a live wake-phrase utterance
+    // to confirm it's actually the enrolled user's voice.
+    referenceVector: v.optional(v.array(v.number())),
   })
     .index("by_userId", ["userId"])
     .index("by_deviceId", ["deviceId"])

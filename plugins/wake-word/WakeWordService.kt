@@ -51,6 +51,46 @@ class WakeWordService : Service() {
     // by JS from this device's own `wakePhrase`/`customWakePhrase` in
     // Convex, so e.g. a phone never reacts to a tablet's phrase. Falls back
     // to a generic phone phrase set only if nothing has been persisted yet.
+    // Element-wise cosine similarity between two equal-length vectors.
+    // Returns -1 (never a match) on any size/empty mismatch rather than
+    // throwing, since a malformed vector should just fail verification, not
+    // crash wake-word detection entirely.
+    private fun cosineSimilarity(a: FloatArray, b: FloatArray): Float {
+        if (a.size != b.size || a.isEmpty()) return -1f
+        var dot = 0f
+        var normA = 0f
+        var normB = 0f
+        for (i in a.indices) {
+            dot += a[i] * b[i]
+            normA += a[i] * a[i]
+            normB += b[i] * b[i]
+        }
+        val denom = kotlin.math.sqrt(normA) * kotlin.math.sqrt(normB)
+        return if (denom == 0f) -1f else dot / denom
+    }
+
+    // NOTE: this threshold is a starting estimate, not a validated value --
+    // it genuinely needs on-device tuning against real recordings (short
+    // wake-phrase utterances produce noisier x-vectors than the 4+ second
+    // clips Vosk's own docs recommend). Log every similarity score so real
+    // pass/fail data is visible in Log Deck for tuning.
+    private val VOICE_MATCH_THRESHOLD = 0.5f
+
+    // Absent (null) simply means this device hasn't completed voice
+    // enrollment yet -- wake-word detection falls back to phrase-match-only
+    // behavior, same as before speaker verification existed.
+    private fun loadReferenceVoicePrint(): FloatArray? {
+        return try {
+            val prefs = getSharedPreferences("myphone_prefs", MODE_PRIVATE)
+            val json = prefs.getString("reference_voiceprint_json", null) ?: return null
+            val arr = org.json.JSONArray(json)
+            FloatArray(arr.length()) { i -> arr.getDouble(i).toFloat() }
+        } catch (e: Exception) {
+            log("Failed to load reference voiceprint (non-fatal, falls back to phrase-only): " + e.message, "warn")
+            null
+        }
+    }
+
     private fun loadWakePhrases(): List<String> {
         return try {
             val prefs = getSharedPreferences("myphone_prefs", MODE_PRIVATE)
@@ -136,6 +176,12 @@ class WakeWordService : Service() {
     // alarm is deactivated (e.g. biometric unlock), not just start.
     private var alarmPlayer: MediaPlayer? = null
     @Volatile private var lastAlarmState = false
+
+    // Speaker verification state. referenceVoicePrint is loaded once at
+    // service start; lastVectorPassedVerification is set by onSpeakerVector
+    // and consumed immediately by onWakeWordDetected for the same utterance.
+    private var referenceVoicePrint: FloatArray? = null
+    @Volatile private var lastVectorPassedVerification: Boolean? = null
 
     private var telephonyManager: TelephonyManager? = null
     private var legacyPhoneStateListener: PhoneStateListener? = null
@@ -456,15 +502,43 @@ class WakeWordService : Service() {
                 val modelDir = File(filesDir, "vosk-model")
                 val phrases = loadWakePhrases()
                 log("Listening for phrases: " + phrases.joinToString(" | "))
+
+                referenceVoicePrint = loadReferenceVoicePrint()
+                val speakerModelReady = VoskSpeakerModelManager.isModelReady(this)
+                if (referenceVoicePrint != null && !speakerModelReady) {
+                    log("Reference voiceprint present but speaker model not downloaded -- voice verification disabled this session", "warn")
+                }
+                val speakerModelPath = if (speakerModelReady) VoskSpeakerModelManager.getModelDir(this).absolutePath else null
+
                 voskHandler = VoskHandler(
-                    this,
-                    modelDir.absolutePath,
-                    phrases,
-                    {
+                    context = this,
+                    modelPath = modelDir.absolutePath,
+                    wakePhrases = phrases,
+                    onWakeWordDetected = {
                         log("*** WAKE PHRASE DETECTED ***")
-                        emitWakeWordDetected()
+                        val ref = referenceVoicePrint
+                        if (ref == null) {
+                            log("No enrolled voiceprint -- triggering on phrase match alone")
+                            emitWakeWordDetected()
+                        } else if (lastVectorPassedVerification == true) {
+                            log("Voice verified -- triggering alarm")
+                            emitWakeWordDetected()
+                        } else {
+                            log("Phrase matched but voice did not match enrolled speaker -- ignoring", "warn")
+                        }
+                        lastVectorPassedVerification = null
                     },
-                    { heard -> log(heard) }
+                    onDebug = { heard -> log(heard) },
+                    speakerModelPath = speakerModelPath,
+                    onSpeakerVector = { vector, frames ->
+                        val ref = referenceVoicePrint
+                        if (ref != null) {
+                            val similarity = cosineSimilarity(vector, ref)
+                            val passed = similarity >= VOICE_MATCH_THRESHOLD
+                            lastVectorPassedVerification = passed
+                            log("Voice similarity: " + similarity + " (frames=" + frames + ", threshold=" + VOICE_MATCH_THRESHOLD + ") -> " + (if (passed) "MATCH" else "NO MATCH"))
+                        }
+                    }
                 )
                 voskHandler?.start()
                 isRunning = true

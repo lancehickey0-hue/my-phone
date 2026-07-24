@@ -5,6 +5,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import {
   Alert,
   Animated,
+  NativeModules,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -13,10 +14,14 @@ import {
 } from 'react-native';
 import { api } from '../convex/_generated/api';
 import { borderRadius, colors, fontSize, spacing } from '../src/lib/theme';
-import { deviceEmoji } from '../src/lib/deviceIcons';
+import { deviceEmoji, getPhraseVariants } from '../src/lib/deviceIcons';
 import type { Id } from '../convex/_generated/dataModel';
 
+const { WakeWordModule } = NativeModules;
+
 type RecordingState = 'idle' | 'recording' | 'processing' | 'done';
+
+const SAMPLES_REQUIRED = 5;
 
 export default function VoiceSetupScreen() {
   const { deviceId } = useLocalSearchParams<{ deviceId: string }>();
@@ -34,14 +39,17 @@ export default function VoiceSetupScreen() {
   const [recordState, setRecordState] = useState<RecordingState>('idle');
   const [enrollmentId, setEnrollmentId] = useState<string | null>(null);
   const [permissionGranted, setPermissionGranted] = useState(false);
-  const recordingRef = useRef<Audio.Recording | null>(null);
   const waveAnim = useRef(new Animated.Value(0)).current;
 
   const sampleCount = enrollment?.sampleCount ?? 0;
   const isComplete = enrollment?.isEnrolled ?? false;
   const wakePhrase = device?.customWakePhrase || device?.wakePhrase || '...';
 
-  // Request microphone permission on mount
+  // Request microphone permission on mount. Actual capture during a sample
+  // recording is handled entirely natively (WakeWordModule.recordVoiceSample
+  // reuses the same Vosk pipeline the always-on service uses) -- this check
+  // is just a safety net since mic permission is normally already granted
+  // during device-setup.tsx's post-login flow.
   useEffect(() => {
     (async () => {
       try {
@@ -53,22 +61,10 @@ export default function VoiceSetupScreen() {
             'My-Phone needs microphone access to train your voice. Please enable it in Settings.',
           );
         }
-        // Configure audio session for recording
-        await Audio.setAudioModeAsync({
-          allowsRecordingIOS: true,
-          playsInSilentModeIOS: true,
-        });
       } catch (e) {
         console.warn('Audio permission error:', e);
       }
     })();
-
-    // Cleanup on unmount
-    return () => {
-      if (recordingRef.current) {
-        recordingRef.current.stopAndUnloadAsync().catch(() => {});
-      }
-    };
   }, []);
 
   // Wave animation during recording
@@ -108,40 +104,35 @@ export default function VoiceSetupScreen() {
       }
     }
 
+    if (!WakeWordModule?.recordVoiceSample) {
+      Alert.alert('Not Available', 'Voice training requires the voice models to be downloaded first.');
+      return;
+    }
+
     setRecordState('recording');
 
     try {
-      // Start actual microphone recording
-      const recording = new Audio.Recording();
-      await recording.prepareToRecordAsync(Audio.RecordingOptionsPresets.HIGH_QUALITY);
-      await recording.startAsync();
-      recordingRef.current = recording;
+      // Same phrase variants used for real-time detection, so training
+      // matches exactly what the always-on service will later listen for.
+      const phrases = getPhraseVariants(wakePhrase);
+      const result = await WakeWordModule.recordVoiceSample(JSON.stringify(phrases));
+      setRecordState('processing');
 
-      // Record for 4 seconds
-      setTimeout(async () => {
-        setRecordState('processing');
-        try {
-          // Stop recording
-          if (recordingRef.current) {
-            await recordingRef.current.stopAndUnloadAsync();
-            const uri = recordingRef.current.getURI();
-            recordingRef.current = null;
+      const vector: number[] = Array.isArray(result?.vector) ? result.vector : [];
+      if (vector.length === 0) {
+        throw new Error('No voice sample captured');
+      }
 
-            // Submit the sample to backend
-            await recordSample({ enrollmentId: eid as any });
+      await recordSample({ enrollmentId: eid as any, vector });
 
-            setRecordState('done');
-            setTimeout(() => setRecordState('idle'), 1000);
-          }
-        } catch (e: any) {
-          console.warn('Recording stop error:', e);
-          Alert.alert('Error', 'Failed to process recording. Please try again.');
-          setRecordState('idle');
-        }
-      }, 4000);
+      setRecordState('done');
+      setTimeout(() => setRecordState('idle'), 1000);
     } catch (e: any) {
-      console.warn('Recording start error:', e);
-      Alert.alert('Error', 'Could not start recording. Please check microphone permissions.');
+      console.warn('Voice sample recording error:', e);
+      const message = e?.code === 'TIMEOUT'
+        ? `Didn't catch "${wakePhrase}" clearly. Please try again, speaking clearly right after tapping.`
+        : (e?.message || 'Failed to record voice sample. Please try again.');
+      Alert.alert('Try Again', message);
       setRecordState('idle');
     }
   }
@@ -161,7 +152,7 @@ export default function VoiceSetupScreen() {
         <Text style={styles.subtitle}>
           {isComplete
             ? `Voice print ready for ${device?.name ?? 'this device'}! It will recognize your voice.`
-            : `Say the wake phrase ${3 - sampleCount} more time${3 - sampleCount !== 1 ? 's' : ''} to complete training.`}
+            : `Say the wake phrase ${SAMPLES_REQUIRED - sampleCount} more time${SAMPLES_REQUIRED - sampleCount !== 1 ? 's' : ''} to complete training.`}
         </Text>
       </View>
 
@@ -173,7 +164,7 @@ export default function VoiceSetupScreen() {
 
       {/* Progress Dots */}
       <View style={styles.progressRow}>
-        {[1, 2, 3].map((num) => (
+        {[1, 2, 3, 4, 5].map((num) => (
           <View
             key={num}
             style={[

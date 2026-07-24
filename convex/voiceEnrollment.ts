@@ -24,6 +24,8 @@ export const listEnrollments = query({
       enrolledAt: v.optional(v.number()),
       sampleCount: v.number(),
       wakePhrase: v.string(),
+      sampleVectors: v.optional(v.array(v.array(v.number()))),
+      referenceVector: v.optional(v.array(v.number())),
     }),
   ),
   handler: async (ctx) => {
@@ -49,6 +51,8 @@ export const getDeviceEnrollment = query({
       enrolledAt: v.optional(v.number()),
       sampleCount: v.number(),
       wakePhrase: v.string(),
+      sampleVectors: v.optional(v.array(v.array(v.number()))),
+      referenceVector: v.optional(v.array(v.number())),
     }),
     v.null(),
   ),
@@ -93,6 +97,8 @@ export const startEnrollment = mutation({
         isEnrolled: false,
         sampleCount: 0,
         wakePhrase,
+        sampleVectors: [],
+        referenceVector: undefined,
       });
       return existing._id;
     }
@@ -103,13 +109,30 @@ export const startEnrollment = mutation({
       isEnrolled: false,
       sampleCount: 0,
       wakePhrase,
+      sampleVectors: [],
     });
   },
 });
 
-// Record a voice sample for a specific device
+const SAMPLES_REQUIRED = 5;
+
+// Element-wise average of several equal-length vectors -- combines the 5
+// enrollment samples into one reference voiceprint. Averaging smooths out
+// per-utterance noise/variation rather than relying on any single sample.
+function averageVectors(vectors: number[][]): number[] {
+  const dim = vectors[0].length;
+  const sums = new Array(dim).fill(0);
+  for (const vec of vectors) {
+    for (let i = 0; i < dim; i++) sums[i] += vec[i];
+  }
+  return sums.map((s) => s / vectors.length);
+}
+
+// Record a voice sample for a specific device. `vector` is the real x-vector
+// (voice fingerprint) extracted natively by Vosk's speaker-identification
+// model for this one utterance -- see WakeWordModule.recordVoiceSample().
 export const recordSample = mutation({
-  args: { enrollmentId: v.id("voiceEnrollment") },
+  args: { enrollmentId: v.id("voiceEnrollment"), vector: v.array(v.number()) },
   returns: v.object({ sampleCount: v.number(), isComplete: v.boolean() }),
   handler: async (ctx, args) => {
     const userId = await getAuthUserId(ctx);
@@ -120,13 +143,17 @@ export const recordSample = mutation({
       throw new Error("Enrollment not found");
     }
 
-    const newCount = enrollment.sampleCount + 1;
-    const isComplete = newCount >= 3;
+    const updatedVectors = [...(enrollment.sampleVectors ?? []), args.vector];
+    const newCount = updatedVectors.length;
+    const isComplete = newCount >= SAMPLES_REQUIRED;
+    const referenceVector = isComplete ? averageVectors(updatedVectors) : undefined;
 
     await ctx.db.patch(args.enrollmentId, {
       sampleCount: newCount,
+      sampleVectors: updatedVectors,
       isEnrolled: isComplete,
       enrolledAt: isComplete ? Date.now() : undefined,
+      referenceVector,
     });
 
     // Mark device as voice-enrolled if complete

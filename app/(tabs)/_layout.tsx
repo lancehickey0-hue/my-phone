@@ -42,6 +42,7 @@ function TabIcon({ emoji, focused, isInfinity }: { emoji: string; focused: boole
 
 function HeartbeatManager() {
   const devices = useQuery(api.devices.list) ?? [];
+  const voiceEnrollments = useQuery(api.voiceEnrollment.listEnrollments) ?? [];
   const heartbeat = useMutation(api.devices.heartbeat);
   const markOffline = useMutation(api.devices.markOffline);
   const updateLocation = useMutation(api.devices.updateLocation);
@@ -123,9 +124,19 @@ function HeartbeatManager() {
 
       wakeServiceStarted.current = true;
       const rawPhrase = (myDevice as any).customWakePhrase || (myDevice as any).wakePhrase || 'Hey, My-Phone, where are you?';
+
+      // If this device has completed voice enrollment, its reference
+      // voiceprint gets included so the native side can require an actual
+      // voice match, not just the right words -- see WakeWordService.kt.
+      // Devices without enrollment yet fall back to phrase-match-only
+      // behavior (referenceVector simply omitted).
+      const myEnrollment = voiceEnrollments.find((e) => e.deviceId === myDevice._id);
+      const referenceVector = myEnrollment?.isEnrolled ? myEnrollment.referenceVector : undefined;
+
       WakeWordModule.startService(JSON.stringify({
         phrases: getPhraseVariants(rawPhrase),
         physicalDeviceId: physicalId,
+        referenceVector,
       }));
     })();
 

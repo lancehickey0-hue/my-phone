@@ -12,6 +12,7 @@ import com.facebook.react.bridge.ReactMethod
 import com.facebook.react.bridge.LifecycleEventListener
 import com.facebook.react.bridge.Promise
 import com.facebook.react.modules.core.DeviceEventManagerModule
+import java.io.File
 
 @ReactModule(name = WakeWordModule.NAME)
 class WakeWordModule(private val reactContext: ReactApplicationContext) :
@@ -38,6 +39,13 @@ class WakeWordModule(private val reactContext: ReactApplicationContext) :
             }
             if (config.has("physicalDeviceId")) {
                 editor.putString("physical_device_id", config.getString("physicalDeviceId"))
+            }
+            // Present only if this device has completed voice enrollment --
+            // see voiceEnrollments.find(...) in (tabs)/_layout.tsx. Absent
+            // means WakeWordService falls back to phrase-match-only
+            // behavior, same as before speaker verification existed.
+            if (config.has("referenceVector")) {
+                editor.putString("reference_voiceprint_json", config.getJSONArray("referenceVector").toString())
             }
             editor.apply()
         } catch (e: Exception) {
@@ -91,6 +99,112 @@ class WakeWordModule(private val reactContext: ReactApplicationContext) :
             },
             onError = { error -> promise.reject("DOWNLOAD_ERROR", error) }
         )
+    }
+
+    // -- Speaker verification: model download --------------------------------
+    // Separate ~13MB Vosk speaker-identification model, downloaded alongside
+    // the ASR model in wake-word-setup.tsx. See VoskSpeakerModelManager.kt.
+    @ReactMethod
+    fun isSpeakerModelReady(promise: Promise) {
+        promise.resolve(VoskSpeakerModelManager.isModelReady(reactContext))
+    }
+
+    @ReactMethod
+    fun downloadSpeakerModel(promise: Promise) {
+        VoskSpeakerModelManager.downloadModel(
+            reactContext,
+            onProgress = { progress ->
+                reactContext
+                    .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
+                    .emit("VoskSpeakerDownloadProgress", progress)
+            },
+            onComplete = {
+                promise.resolve(null)
+            },
+            onError = { error -> promise.reject("DOWNLOAD_ERROR", error) }
+        )
+    }
+
+    // -- Speaker verification: enrollment sample capture ----------------------
+    // Records one ~4-6 second utterance via a short-lived VoskHandler instance
+    // (reusing the same grammar-constrained + speaker-model recognition the
+    // always-on service uses), and resolves with the resulting x-vector the
+    // moment the given wake phrase is matched. Requiring a phrase match during
+    // enrollment (rather than capturing any speech) both confirms the phrase
+    // is actually recognizable and ties the captured voiceprint to a
+    // confirmed correct utterance, not arbitrary speech.
+    @ReactMethod
+    fun recordVoiceSample(wakePhraseJson: String, promise: Promise) {
+        if (!VoskModelManager.isModelReady(reactContext)) {
+            promise.reject("MODEL_NOT_READY", "Voice model not downloaded yet")
+            return
+        }
+        if (!VoskSpeakerModelManager.isModelReady(reactContext)) {
+            promise.reject("SPEAKER_MODEL_NOT_READY", "Speaker model not downloaded yet")
+            return
+        }
+
+        val phrases = try {
+            val arr = org.json.JSONArray(wakePhraseJson)
+            (0 until arr.length()).map { arr.getString(it).lowercase().trim() }
+        } catch (e: Exception) {
+            promise.reject("INVALID_PHRASE", "Could not parse wake phrase")
+            return
+        }
+
+        val modelDir = File(reactContext.filesDir, "vosk-model")
+        val speakerModelDir = VoskSpeakerModelManager.getModelDir(reactContext)
+
+        val settled = java.util.concurrent.atomic.AtomicBoolean(false)
+        val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
+        var voskHandler: VoskHandler? = null
+
+        fun cleanup() {
+            try { voskHandler?.stop() } catch (e: Throwable) {}
+            voskHandler = null
+        }
+
+        val timeoutRunnable = Runnable {
+            if (settled.compareAndSet(false, true)) {
+                cleanup()
+                promise.reject("TIMEOUT", "No matching phrase heard within the recording window")
+            }
+        }
+
+        voskHandler = VoskHandler(
+            context = reactContext,
+            modelPath = modelDir.absolutePath,
+            wakePhrases = phrases,
+            onWakeWordDetected = {
+                // The accompanying onSpeakerVector call below is what actually
+                // resolves the promise -- this is required by VoskHandler's
+                // constructor but does nothing further here.
+            },
+            speakerModelPath = speakerModelDir.absolutePath,
+            onSpeakerVector = { vector, frames ->
+                if (settled.compareAndSet(false, true)) {
+                    mainHandler.removeCallbacks(timeoutRunnable)
+                    val resultArray = com.facebook.react.bridge.Arguments.createArray()
+                    vector.forEach { resultArray.pushDouble(it.toDouble()) }
+                    val result = com.facebook.react.bridge.Arguments.createMap()
+                    result.putArray("vector", resultArray)
+                    result.putInt("frames", frames)
+                    mainHandler.post {
+                        cleanup()
+                        promise.resolve(result)
+                    }
+                }
+            }
+        )
+
+        try {
+            voskHandler?.start()
+            mainHandler.postDelayed(timeoutRunnable, 6000)
+        } catch (e: Throwable) {
+            if (settled.compareAndSet(false, true)) {
+                promise.reject("START_FAILED", e.message ?: "Failed to start recording")
+            }
+        }
     }
 
     // ── Device Admin — real system-level lock ──────────────────────────────

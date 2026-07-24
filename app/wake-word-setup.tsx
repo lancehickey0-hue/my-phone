@@ -69,6 +69,20 @@ export default function WakeWordSetupScreen() {
     logStep('requestLocationPermission: finished');
   }
 
+  // Non-fatal by design: speaker verification is additive on top of
+  // keyword-based wake-word detection, not a hard dependency. If this
+  // fails (offline, storage full, etc.), wake-word matching still works
+  // exactly as before -- just without the "actually your voice" check.
+  async function ensureSpeakerModel(): Promise<void> {
+    try {
+      const spkReady = await WakeWordModule.isSpeakerModelReady();
+      if (spkReady) return;
+      await WakeWordModule.downloadSpeakerModel();
+    } catch (e) {
+      console.warn('[Setup] Speaker model download failed (non-fatal):', e);
+    }
+  }
+
   async function checkAndSetup() {
     try {
       await requestLocationPermission();
@@ -80,6 +94,7 @@ export default function WakeWordSetupScreen() {
 
       const ready = await WakeWordModule.isModelReady();
       if (ready) {
+        await ensureSpeakerModel();
         setStatus('ready');
         await SecureStore.setItemAsync('wake_word_setup_done', 'true');
         setTimeout(() => router.replace('/auth'), 1000);
@@ -90,6 +105,7 @@ export default function WakeWordSetupScreen() {
         WakeWordModule.downloadModel()
           .then(async () => {
             progressSub.remove();
+            await ensureSpeakerModel();
             setStatus('ready');
             await SecureStore.setItemAsync('wake_word_setup_done', 'true');
             setTimeout(() => router.replace('/auth'), 1500);
