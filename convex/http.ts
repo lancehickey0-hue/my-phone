@@ -55,13 +55,13 @@ http.route({
     try {
       const body = await request.json();
       const physicalDeviceId = String(body.physicalDeviceId ?? "");
-      if (!physicalDeviceId) return json({ isLocked: false });
+      if (!physicalDeviceId) return json({ isLocked: false, isAlarmActive: false });
       const state = await ctx.runQuery(internal.devices.getLockStateByPhysicalId, {
         physicalDeviceId,
       });
       return json(state);
     } catch (e) {
-      return json({ isLocked: false });
+      return json({ isLocked: false, isAlarmActive: false });
     }
   }),
 });

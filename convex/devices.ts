@@ -293,13 +293,13 @@ export const updateLocationByPhysicalId = internalMutation({
 // since the call originates from the device itself.
 export const getLockStateByPhysicalId = internalQuery({
   args: { physicalDeviceId: v.string() },
-  returns: v.object({ isLocked: v.boolean() }),
+  returns: v.object({ isLocked: v.boolean(), isAlarmActive: v.boolean() }),
   handler: async (ctx, args) => {
     const device = await ctx.db
       .query("devices")
       .withIndex("by_physicalDeviceId", (q) => q.eq("physicalDeviceId", args.physicalDeviceId))
       .first();
-    return { isLocked: !!device?.isLocked };
+    return { isLocked: !!device?.isLocked, isAlarmActive: !!device?.isAlarmActive };
   },
 });
 

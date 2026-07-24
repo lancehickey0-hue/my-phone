@@ -170,6 +170,18 @@ function withWakeWordService(config) {
         path.join(xmlDestDir, 'device_admin_policies.xml')
       );
 
+      // Native alarm siren audio (res/raw/alarm.mp3) -- played directly from
+      // WakeWordService via MediaPlayer so the alarm sounds immediately,
+      // independent of the JS bridge being alive. Android's raw resource
+      // system requires its own copy here; it can't reference the JS-side
+      // assets/audio/alarm.mp3 used by expo-av.
+      const rawDestDir = path.join(root, 'android/app/src/main/res/raw');
+      fs.mkdirSync(rawDestDir, { recursive: true });
+      fs.copyFileSync(
+        path.join(wakeDir, 'res-raw/alarm.mp3'),
+        path.join(rawDestDir, 'alarm.mp3')
+      );
+
       return config;
     },
   ]);

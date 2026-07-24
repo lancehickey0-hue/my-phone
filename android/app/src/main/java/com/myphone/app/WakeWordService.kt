@@ -9,6 +9,8 @@ import android.content.ComponentName
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
+import android.media.AudioAttributes
+import android.media.MediaPlayer
 import android.os.Build
 import android.os.IBinder
 import android.telephony.PhoneStateListener
@@ -128,6 +130,12 @@ class WakeWordService : Service() {
     // re-arms once the device is unlocked again.
     private var lockPoller: ScheduledExecutorService? = null
     @Volatile private var lastLockState = false
+
+    // Native alarm siren. Tracks the last observed alarm state the same way
+    // lock does, but on BOTH edges -- the siren must also stop once the
+    // alarm is deactivated (e.g. biometric unlock), not just start.
+    private var alarmPlayer: MediaPlayer? = null
+    @Volatile private var lastAlarmState = false
 
     private var telephonyManager: TelephonyManager? = null
     private var legacyPhoneStateListener: PhoneStateListener? = null
@@ -250,13 +258,27 @@ class WakeWordService : Service() {
             conn.disconnect()
             if (code != 200) return
 
-            val isLocked = JSONObject(response).optBoolean("isLocked", false)
+            val json = JSONObject(response)
+            val isLocked = json.optBoolean("isLocked", false)
+            val isAlarmActive = json.optBoolean("isAlarmActive", false)
+
             // Only act on the false→true edge; re-arm once unlocked.
             if (isLocked && !lastLockState) {
                 log("Remote lock detected — locking device via DevicePolicyManager")
                 lockDeviceNow()
             }
             lastLockState = isLocked
+
+            // Alarm sound tracks both edges -- it must also stop once
+            // deactivated, unlike lock which has no native "unlock" action.
+            if (isAlarmActive && !lastAlarmState) {
+                log("Remote alarm detected — starting native siren")
+                startAlarmSound()
+            } else if (!isAlarmActive && lastAlarmState) {
+                log("Alarm deactivated — stopping native siren")
+                stopAlarmSound()
+            }
+            lastAlarmState = isAlarmActive
         } catch (e: Throwable) {
             log("pollLockState failed (non-fatal): " + e.message, "warn")
         }
@@ -274,6 +296,45 @@ class WakeWordService : Service() {
             log("lockNow() succeeded")
         } catch (e: Throwable) {
             log("lockNow() failed: " + e.message, "error")
+        }
+    }
+
+    // Plays res/raw/alarm.mp3 directly, independent of the JS bridge --
+    // this is what makes the alarm sound immediately when triggered while
+    // the app is backgrounded/killed, instead of waiting for JS to wake up.
+    private fun startAlarmSound() {
+        try {
+            if (alarmPlayer != null) return
+            val player = MediaPlayer.create(this, R.raw.alarm)
+            if (player == null) {
+                log("startAlarmSound: MediaPlayer.create returned null", "error")
+                return
+            }
+            player.isLooping = true
+            player.setAudioAttributes(
+                AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_ALARM)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                    .build()
+            )
+            player.start()
+            alarmPlayer = player
+            log("Native alarm sound started")
+        } catch (e: Throwable) {
+            log("startAlarmSound failed: " + e.message, "error")
+        }
+    }
+
+    private fun stopAlarmSound() {
+        try {
+            alarmPlayer?.let {
+                if (it.isPlaying) it.stop()
+                it.release()
+            }
+            alarmPlayer = null
+            log("Native alarm sound stopped")
+        } catch (e: Throwable) {
+            log("stopAlarmSound failed: " + e.message, "error")
         }
     }
 
@@ -468,6 +529,7 @@ class WakeWordService : Service() {
         isRunning = false
         lockPoller?.shutdownNow()
         lockPoller = null
+        stopAlarmSound()
         unregisterCallStateWatcher()
         try {
             voskHandler?.stop()
