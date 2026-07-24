@@ -33,6 +33,15 @@ import java.util.concurrent.TimeUnit
 
 class WakeWordService : Service() {
 
+    companion object {
+        // Lets WakeWordModule reach into the currently-running instance to
+        // pause/resume listening during voice enrollment -- enrollment
+        // records through its own temporary VoskHandler, and without this
+        // the always-on listener here would also hear the same utterance
+        // and could fire a real alarm/lock during training.
+        @Volatile var instance: WakeWordService? = null
+    }
+
     private val TAG = "WakeWordService"
     private val CHANNEL_ID = "wake_word_channel"
     private val NOTIFICATION_ID = 1001
@@ -158,11 +167,36 @@ class WakeWordService : Service() {
     private var voskHandler: VoskHandler? = null
     @Volatile private var isRunning = false
     @Volatile private var pausedForCall = false
+    @Volatile private var pausedForEnrollment = false
     // Guards against two initVosk() calls racing. onCreate() and
     // onStartCommand() can both fire before the first init finishes and flips
     // isRunning, which would otherwise spin up two SpeechServices fighting
     // over the one microphone — leaving neither able to recognize cleanly.
     private val voskInitializing = java.util.concurrent.atomic.AtomicBoolean(false)
+
+    fun pauseForEnrollment() {
+        if (!isRunning) return
+        log("Pausing wake word listening for voice enrollment")
+        try {
+            voskHandler?.stop()
+        } catch (e: Throwable) {
+            log("Error pausing Vosk for enrollment: " + e.message, "warn")
+        }
+        voskHandler = null
+        isRunning = false
+        pausedForEnrollment = true
+    }
+
+    fun resumeAfterEnrollment() {
+        if (!pausedForEnrollment) return
+        log("Voice enrollment finished — resuming wake word listening")
+        pausedForEnrollment = false
+        try {
+            initVosk()
+        } catch (e: Throwable) {
+            log("Failed to resume Vosk after enrollment: " + e.message, "error")
+        }
+    }
     private val logExecutor = Executors.newSingleThreadExecutor()
 
     // Remote-lock poller. Tracks the last observed lock state so lockNow()
@@ -234,6 +268,7 @@ class WakeWordService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        instance = this
         log("onCreate() called")
         createNotificationChannel()
         if (checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
@@ -386,7 +421,7 @@ class WakeWordService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         log("onStartCommand() called, isRunning=$isRunning")
-        if (!isRunning && !pausedForCall) {
+        if (!isRunning && !pausedForCall && !pausedForEnrollment) {
             try {
                 initVosk()
             } catch (e: Throwable) {
@@ -599,6 +634,7 @@ class WakeWordService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
+        instance = null
         log("onDestroy() called — service stopping")
         isRunning = false
         lockPoller?.shutdownNow()

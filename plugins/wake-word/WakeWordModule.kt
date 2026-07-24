@@ -155,6 +155,12 @@ class WakeWordModule(private val reactContext: ReactApplicationContext) :
         val modelDir = File(reactContext.filesDir, "vosk-model")
         val speakerModelDir = VoskSpeakerModelManager.getModelDir(reactContext)
 
+        // Silence the always-on listener for the duration of this recording
+        // -- otherwise it also hears the same utterance and, if this device
+        // has no reference voiceprint yet, could fire a real alarm/lock
+        // during enrollment.
+        WakeWordService.instance?.pauseForEnrollment()
+
         val settled = java.util.concurrent.atomic.AtomicBoolean(false)
         val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
         var voskHandler: VoskHandler? = null
@@ -162,6 +168,7 @@ class WakeWordModule(private val reactContext: ReactApplicationContext) :
         fun cleanup() {
             try { voskHandler?.stop() } catch (e: Throwable) {}
             voskHandler = null
+            WakeWordService.instance?.resumeAfterEnrollment()
         }
 
         val timeoutRunnable = Runnable {
