@@ -60,7 +60,7 @@ class VoskHandler(
         if (!speakerModelPath.isNullOrEmpty()) {
             try {
                 speakerModel = SpeakerModel(speakerModelPath)
-                recognizer.setSpkModel(speakerModel)
+                recognizer.setSpeakerModel(speakerModel)
             } catch (e: Throwable) {
                 Log.e(TAG, "Failed to load speaker model (non-fatal, verification disabled): " + e.message)
             }
