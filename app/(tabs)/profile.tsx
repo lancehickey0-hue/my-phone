@@ -5,6 +5,8 @@ import * as SecureStore from 'expo-secure-store';
 import React from 'react';
 import {
   Alert,
+  NativeModules,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -32,6 +34,54 @@ export default function ProfileTab() {
       { text: 'Cancel', style: 'cancel' },
       { text: 'Sign Out', style: 'destructive', onPress: async () => { await signOut(); router.replace('/auth'); } },
     ]);
+  }
+
+  // Both of these are "special access" grants that live on their own settings
+  // pages rather than in the normal runtime permission flow, and both affect
+  // whether the lockout screen can appear over a locked phone: full-screen
+  // intents are what raise it, and "Display over other apps" lets the service
+  // launch it directly on OEM skins that throttle full-screen intents.
+  async function handleLockoutPermissions() {
+    const { WakeWordModule } = NativeModules;
+    if (Platform.OS !== 'android' || !WakeWordModule?.canUseFullScreenIntent) {
+      Alert.alert('Not Applicable', 'These permissions only apply on Android.');
+      return;
+    }
+
+    const [fullScreen, overlay] = await Promise.all([
+      WakeWordModule.canUseFullScreenIntent().catch(() => false),
+      WakeWordModule.canDrawOverlays?.().catch(() => false) ?? false,
+    ]);
+
+    if (fullScreen && overlay) {
+      Alert.alert(
+        'All Set',
+        'Full-screen alerts and display-over-other-apps are both allowed. The lockout screen can take over a locked phone.',
+      );
+      return;
+    }
+
+    const buttons: any[] = [{ text: 'Close', style: 'cancel' }];
+    if (!fullScreen) {
+      buttons.push({
+        text: 'Allow Full-Screen Alerts',
+        onPress: () => WakeWordModule.requestFullScreenIntentPermission(),
+      });
+    }
+    if (!overlay && WakeWordModule.requestOverlayPermission) {
+      buttons.push({
+        text: 'Allow Display Over Apps',
+        onPress: () => WakeWordModule.requestOverlayPermission(),
+      });
+    }
+
+    Alert.alert(
+      'Lockout Screen Permissions',
+      `Full-screen alerts: ${fullScreen ? '✅ allowed' : '⚠️ not allowed'}\n` +
+        `Display over other apps: ${overlay ? '✅ allowed' : '⚠️ not allowed'}\n\n` +
+        'Without full-screen alerts, a triggered alarm can only show a notification instead of taking over the screen.',
+      buttons,
+    );
   }
 
   function handleRedoDeviceSetup() {
@@ -184,6 +234,12 @@ export default function ProfileTab() {
         <Pressable style={styles.menuRow} onPress={handleRedoDeviceSetup}>
           <Text style={styles.menuEmoji}>🔁</Text>
           <Text style={styles.menuText}>Redo Wake Word & Permissions Setup</Text>
+          <Text style={styles.chevron}>›</Text>
+        </Pressable>
+        <View style={styles.divider} />
+        <Pressable style={styles.menuRow} onPress={handleLockoutPermissions}>
+          <Text style={styles.menuEmoji}>🚨</Text>
+          <Text style={styles.menuText}>Lockout Screen Permissions</Text>
           <Text style={styles.chevron}>›</Text>
         </Pressable>
       </View>

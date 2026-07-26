@@ -7,6 +7,7 @@ import {
   StyleSheet,
   NativeModules,
   ActivityIndicator,
+  Alert,
   PermissionsAndroid,
   Platform,
 } from 'react-native';
@@ -95,7 +96,50 @@ export default function DeviceSetupScreen() {
       }
     }
 
-    // 4. Device Admin — runs last. It launches a whole separate full-screen
+    // 4. Full-screen intents — what lets WakeWordService raise the lockout
+    // screen over a locked phone. From Android 14 the OS reserves this for
+    // calling/alarm apps unless the user grants it on a settings page;
+    // without it a triggered alarm only produces a notification banner,
+    // which is useless when the phone is in someone else's pocket.
+    //
+    // Sits ahead of device admin because both open a settings Activity and
+    // Android only foregrounds the most recent one. Skipping is fine — the
+    // Profile → Device Setup card offers it again.
+    if (Platform.OS === 'android' && WakeWordModule?.canUseFullScreenIntent) {
+      try {
+        logStep('full_screen_intent: checking');
+        const allowed = await WakeWordModule.canUseFullScreenIntent();
+        logStep('full_screen_intent: allowed = ' + allowed);
+        if (!allowed) {
+          await new Promise<void>((resolve) => {
+            Alert.alert(
+              'Allow Full-Screen Alerts',
+              'My-Phone needs this to show the lockout screen over your lock screen when the alarm fires. Without it, a triggered alarm only shows a notification.',
+              [
+                { text: 'Skip', style: 'cancel', onPress: () => resolve() },
+                {
+                  text: 'Open Settings',
+                  onPress: () => {
+                    try {
+                      WakeWordModule.requestFullScreenIntentPermission();
+                    } catch (e) {
+                      logStep('full_screen_intent: request FAILED ' + (e as any)?.message, 'warn');
+                    }
+                    resolve();
+                  },
+                },
+              ],
+              { cancelable: false },
+            );
+          });
+        }
+      } catch (e) {
+        console.warn('[Permissions] Full-screen intent check failed:', e);
+        logStep('full_screen_intent: FAILED ' + (e as any)?.message, 'warn');
+      }
+    }
+
+    // 5. Device Admin — runs last. It launches a whole separate full-screen
     // system Activity via startActivity(), not a runtime permission dialog
     // callback, so it must come after every dialog above has resolved.
     if (Platform.OS === 'android' && WakeWordModule?.isDeviceAdminActive) {

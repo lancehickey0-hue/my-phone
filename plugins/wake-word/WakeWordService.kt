@@ -3,16 +3,22 @@ package com.myphone.app
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.app.Service
 import android.app.admin.DevicePolicyManager
 import android.content.ComponentName
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.media.AudioAttributes
+import android.media.AudioManager
 import android.media.MediaPlayer
+import android.net.Uri
 import android.os.Build
 import android.os.IBinder
+import android.os.PowerManager
+import android.provider.Settings
 import android.telephony.PhoneStateListener
 import android.telephony.TelephonyCallback
 import android.telephony.TelephonyManager
@@ -45,6 +51,12 @@ class WakeWordService : Service() {
     private val TAG = "WakeWordService"
     private val CHANNEL_ID = "wake_word_channel"
     private val NOTIFICATION_ID = 1001
+
+    // Separate high-importance channel for the lockout itself. The listening
+    // channel above is deliberately IMPORTANCE_LOW so the always-on notice
+    // stays quiet; a full-screen intent is ignored outright on a LOW channel.
+    private val ALARM_CHANNEL_ID = "alarm_lockout_channel"
+    private val ALARM_NOTIFICATION_ID = 1002
 
     private val CONVEX_LOG_URL = "https://cheery-buffalo-947.convex.site/logDebug"
     private val CONVEX_TRIGGER_ALARM_URL = "https://cheery-buffalo-947.convex.site/triggerAlarmDevice"
@@ -354,12 +366,18 @@ class WakeWordService : Service() {
             // deactivated, unlike lock which has no native "unlock" action.
             if (isAlarmActive && !lastAlarmState) {
                 log("Remote alarm detected — starting native siren")
-                startAlarmSound()
+                // The edge is only consumed once the siren is genuinely
+                // playing. Recording it unconditionally (as this used to)
+                // meant a single failed start left a silent alarm until the
+                // flag next flipped, with no retry.
+                if (startAlarmSound()) lastAlarmState = true
+                showLockoutScreen()
             } else if (!isAlarmActive && lastAlarmState) {
                 log("Alarm deactivated — stopping native siren")
                 stopAlarmSound()
+                hideLockoutScreen()
+                lastAlarmState = false
             }
-            lastAlarmState = isAlarmActive
         } catch (e: Throwable) {
             log("pollLockState failed (non-fatal): " + e.message, "warn")
         }
@@ -383,26 +401,114 @@ class WakeWordService : Service() {
     // Plays res/raw/alarm.mp3 directly, independent of the JS bridge --
     // this is what makes the alarm sound immediately when triggered while
     // the app is backgrounded/killed, instead of waiting for JS to wake up.
-    private fun startAlarmSound() {
+    //
+    // Returns whether the siren is actually playing, so callers don't record
+    // a started alarm that never made a sound.
+    private fun startAlarmSound(): Boolean {
         try {
-            if (alarmPlayer != null) return
-            val player = MediaPlayer.create(this, R.raw.alarm)
+            if (alarmPlayer != null) return true
+
+            // MediaPlayer.create(context, resId) hands back an already
+            // *prepared* player, and setAudioAttributes() is only legal
+            // before prepare() -- calling it afterwards throws
+            // IllegalStateException. That is exactly what used to happen
+            // here: the throw landed in the catch below, start() was never
+            // reached, and the alarm stayed silent until the JS side played
+            // it on next app open. The 4-arg overload exists for this case;
+            // it applies the attributes as part of preparation.
+            val attributes = AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_ALARM)
+                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                .build()
+            val sessionId =
+                (getSystemService(Context.AUDIO_SERVICE) as AudioManager).generateAudioSessionId()
+
+            val player = MediaPlayer.create(this, R.raw.alarm, attributes, sessionId)
             if (player == null) {
                 log("startAlarmSound: MediaPlayer.create returned null", "error")
-                return
+                return false
             }
             player.isLooping = true
-            player.setAudioAttributes(
-                AudioAttributes.Builder()
-                    .setUsage(AudioAttributes.USAGE_ALARM)
-                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                    .build()
-            )
+            // Keeps playback alive with the screen off; the device has just
+            // been locked, so this is the normal case rather than the edge.
+            player.setWakeMode(this, PowerManager.PARTIAL_WAKE_LOCK)
             player.start()
             alarmPlayer = player
             log("Native alarm sound started")
+            return true
         } catch (e: Throwable) {
             log("startAlarmSound failed: " + e.message, "error")
+            return false
+        }
+    }
+
+    // ── Lockout screen ──────────────────────────────────────────────────────
+    // Raising UI from a background service is heavily restricted on Android
+    // 10+: a bare startActivity() from here is silently dropped, which is why
+    // the lockout screen never appeared while the phone was locked -- nothing
+    // native ever tried to show it, and the JS paths that navigate to
+    // /lockout only run while the app is already alive and foregrounded.
+    //
+    // The sanctioned escape is a full-screen-intent notification, the same
+    // mechanism an alarm clock or incoming call uses. Where the user has also
+    // granted "Display over other apps" we fire the intent directly as well,
+    // since some OEM skins throttle full-screen intents aggressively.
+    private fun lockoutPendingIntent(): PendingIntent {
+        // The service only knows this device by its physical id; the lockout
+        // screen resolves that to the Convex device record itself.
+        val physicalDeviceId = loadPhysicalDeviceId() ?: ""
+        val uri = Uri.parse("myphone://lockout?physicalDeviceId=$physicalDeviceId&source=wake_word")
+        val intent = Intent(Intent.ACTION_VIEW, uri).apply {
+            setPackage(packageName)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+        }
+        return PendingIntent.getActivity(
+            this,
+            0,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+    }
+
+    private fun showLockoutScreen() {
+        val pending = lockoutPendingIntent()
+
+        try {
+            val builder = Notification.Builder(this, ALARM_CHANNEL_ID)
+                .setContentTitle("My-Phone Alarm")
+                .setContentText("This device has been locked. Tap to unlock.")
+                .setSmallIcon(android.R.drawable.ic_lock_lock)
+                .setCategory(Notification.CATEGORY_ALARM)
+                .setOngoing(true)
+                .setAutoCancel(false)
+                .setContentIntent(pending)
+                .setFullScreenIntent(pending, true)
+            getSystemService(NotificationManager::class.java)
+                .notify(ALARM_NOTIFICATION_ID, builder.build())
+            log("Lockout full-screen intent posted")
+        } catch (e: Throwable) {
+            log("Failed to post lockout notification: " + e.message, "error")
+        }
+
+        // Direct launch, only where the OS still permits it from background.
+        try {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q || Settings.canDrawOverlays(this)) {
+                pending.send()
+                log("Lockout activity launched directly")
+            } else {
+                log("SYSTEM_ALERT_WINDOW not granted — relying on full-screen intent alone")
+            }
+        } catch (e: Throwable) {
+            log("Direct lockout launch failed (non-fatal): " + e.message, "warn")
+        }
+    }
+
+    private fun hideLockoutScreen() {
+        try {
+            getSystemService(NotificationManager::class.java).cancel(ALARM_NOTIFICATION_ID)
+            log("Lockout notification cleared")
+        } catch (e: Throwable) {
+            log("Failed to clear lockout notification: " + e.message, "warn")
         }
     }
 
@@ -589,7 +695,24 @@ class WakeWordService : Service() {
     private fun emitWakeWordDetected() {
         log("emitWakeWordDetected() called")
 
-        // Reliable path first — works whether or not JS is alive.
+        // Act locally first: siren, then lock, then screen. All three used
+        // to wait on the next pollLockState() round trip — up to
+        // LOCK_POLL_INTERVAL_SECONDS plus two HTTP calls, and never at all
+        // with no network. This service is already running in-process when
+        // the phrase is heard, so there is nothing to wait for. The poller
+        // stays as the path for alarms triggered from *another* device.
+        if (startAlarmSound()) lastAlarmState = true
+        // Lock before raising the screen, not after: a full-screen intent
+        // arriving at an already-locked phone is the canonical path the OS
+        // supports (it's what an alarm clock does), whereas launching the
+        // activity first and locking a moment later risks the keyguard
+        // tearing it down mid-launch.
+        lockDeviceNow()
+        lastLockState = true
+        showLockoutScreen()
+
+        // Then tell Convex, so other signed-in devices see the alarm and the
+        // state outlives this process being killed.
         triggerAlarmNative()
 
         val intent = Intent("com.myphone.app.WAKE_WORD_DETECTED")
@@ -612,6 +735,8 @@ class WakeWordService : Service() {
     }
 
     private fun createNotificationChannel() {
+        val manager = getSystemService(NotificationManager::class.java)
+
         val channel = NotificationChannel(
             CHANNEL_ID,
             "My-Phone Wake Word",
@@ -620,7 +745,25 @@ class WakeWordService : Service() {
             description = "Listening for wake word"
             setShowBadge(false)
         }
-        getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
+        manager.createNotificationChannel(channel)
+
+        // Must be HIGH: the system ignores a full-screen intent posted on a
+        // channel below IMPORTANCE_HIGH, and the user can't be shown the
+        // lockout screen without one.
+        val alarmChannel = NotificationChannel(
+            ALARM_CHANNEL_ID,
+            "My-Phone Alarm",
+            NotificationManager.IMPORTANCE_HIGH
+        ).apply {
+            description = "Full-screen lockout when the alarm is triggered"
+            setShowBadge(true)
+            enableVibration(true)
+            lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+            // Silent on purpose — the siren is played on the alarm stream by
+            // MediaPlayer, and a notification sound would layer on top of it.
+            setSound(null, null)
+        }
+        manager.createNotificationChannel(alarmChannel)
     }
 
     private fun buildNotification(): Notification {
@@ -640,6 +783,7 @@ class WakeWordService : Service() {
         lockPoller?.shutdownNow()
         lockPoller = null
         stopAlarmSound()
+        hideLockoutScreen()
         unregisterCallStateWatcher()
         try {
             voskHandler?.stop()

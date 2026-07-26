@@ -20,7 +20,7 @@
  *     straight through the lockout.
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -53,6 +53,8 @@ export default function LockoutScreen() {
     deviceId?: string;
     deviceName?: string;
     deviceType?: string;
+    physicalDeviceId?: string;
+    source?: string;
   }>();
 
   const videoRef = useRef<Video>(null);
@@ -76,8 +78,30 @@ export default function LockoutScreen() {
   const [now, setNow] = useState(Date.now());
   const [biometricUsable, setBiometricUsable] = useState<boolean | null>(null);
 
-  const deviceName = params.deviceName || 'This Device';
-  const deviceId = params.deviceId as Id<'devices'> | undefined;
+  const devices = useQuery(api.devices.list) ?? [];
+
+  // When the native service raises this screen via its full-screen intent it
+  // has no Convex device id to pass — WakeWordService knows this phone only
+  // by its physical id. Resolve it here, otherwise a natively-raised lockout
+  // could silence the siren locally but never clear isAlarmActive/isLocked
+  // in Convex, and the poller would just re-lock the device.
+  const { deviceId, deviceName } = useMemo(() => {
+    if (params.deviceId) {
+      return {
+        deviceId: params.deviceId as Id<'devices'>,
+        deviceName: params.deviceName || 'This Device',
+      };
+    }
+
+    const physicalId =
+      params.physicalDeviceId || (globalThis as any).__myPhoneDeviceId;
+    const match = devices.find((d: any) => d.physicalDeviceId === physicalId);
+
+    return {
+      deviceId: match ? (match._id as Id<'devices'>) : undefined,
+      deviceName: match?.name ?? params.deviceName ?? 'This Device',
+    };
+  }, [params.deviceId, params.deviceName, params.physicalDeviceId, devices]);
 
   const pinIsSet = pinStatus?.isSet ?? false;
   const cooldownMs = lockedUntil ? lockedUntil - now : 0;

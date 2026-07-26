@@ -262,6 +262,81 @@ class WakeWordModule(private val reactContext: ReactApplicationContext) :
         }
     }
 
+    // ── Showing the lockout screen over a locked phone ──────────────────────
+    // Two separate OS gates control whether WakeWordService can raise the
+    // lockout screen while the device is locked and the app is backgrounded.
+    // Neither is a normal runtime permission, so both need their own trip to
+    // a settings page.
+
+    // Gate 1 — full-screen intents. From Android 14 the OS reserves
+    // USE_FULL_SCREEN_INTENT for calling and alarm apps; without it the
+    // lockout notification degrades to a heads-up banner that never takes
+    // over the screen.
+    @ReactMethod
+    fun canUseFullScreenIntent(promise: Promise) {
+        try {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                promise.resolve(true)
+                return
+            }
+            val nm = reactContext.getSystemService(android.app.NotificationManager::class.java)
+            promise.resolve(nm.canUseFullScreenIntent())
+        } catch (e: Exception) {
+            promise.resolve(false)
+        }
+    }
+
+    @ReactMethod
+    fun requestFullScreenIntentPermission() {
+        try {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) return
+            val intent = Intent(
+                android.provider.Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT,
+                android.net.Uri.parse("package:" + reactContext.packageName)
+            )
+            val activity = reactContext.currentActivity
+            if (activity != null) {
+                activity.startActivity(intent)
+            } else {
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                reactContext.startActivity(intent)
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    // Gate 2 — "Display over other apps". Optional, but it lets the service
+    // start the lockout activity directly instead of depending solely on the
+    // full-screen intent, which some OEM skins throttle.
+    @ReactMethod
+    fun canDrawOverlays(promise: Promise) {
+        try {
+            promise.resolve(android.provider.Settings.canDrawOverlays(reactContext))
+        } catch (e: Exception) {
+            promise.resolve(false)
+        }
+    }
+
+    @ReactMethod
+    fun requestOverlayPermission() {
+        try {
+            val intent = Intent(
+                android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                android.net.Uri.parse("package:" + reactContext.packageName)
+            )
+            val activity = reactContext.currentActivity
+            if (activity != null) {
+                activity.startActivity(intent)
+            } else {
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                reactContext.startActivity(intent)
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
     @ReactMethod
     fun lockDevice(promise: Promise) {
         try {

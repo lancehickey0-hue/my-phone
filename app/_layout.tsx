@@ -73,6 +73,12 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
   triggerAlarmRef.current = triggerAlarm;
   const segments = useSegments();
   const router = useRouter();
+  // The lockout screen can now be raised natively by WakeWordService's
+  // full-screen intent, so the listeners below must not push a second copy
+  // on top of one that's already showing. Read via ref — their effects are
+  // keyed on isAuthenticated and would otherwise close over stale segments.
+  const segmentsRef = useRef(segments);
+  segmentsRef.current = segments;
   const profileCreated = useRef(false);
   const deviceRegistered = useRef(false);
   const [setupChecked, setSetupChecked] = useState(false);
@@ -88,6 +94,8 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
       const physicalId = (globalThis as any).__myPhoneDeviceId;
       const allDevices = devicesRef.current;
       const myDevice = allDevices.find((d) => d.physicalDeviceId === physicalId) ?? allDevices[0];
+
+      if (segmentsRef.current[0] === 'lockout') return;
 
       if (myDevice) {
         try {
@@ -118,6 +126,7 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
 
     const sub = Notifications.addNotificationReceivedListener((notification) => {
       const data = notification.request.content.data as any;
+      if (segmentsRef.current[0] === 'lockout') return;
       if (data?.type === 'alarm' && data?.deviceId) {
         const deviceId = data.deviceId as string;
         const allDevices = devicesRef.current;
@@ -136,6 +145,7 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
 
     const tapSub = Notifications.addNotificationResponseReceivedListener((response) => {
       const data = response.notification.request.content.data as any;
+      if (segmentsRef.current[0] === 'lockout') return;
       if (data?.type === 'alarm' && data?.deviceId) {
         const deviceId = data.deviceId as string;
         const allDevices = devicesRef.current;
