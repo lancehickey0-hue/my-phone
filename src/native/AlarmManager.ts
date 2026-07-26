@@ -18,7 +18,7 @@ export interface AlarmEvent {
   triggeredAt: number;
   triggeredBy: 'voice' | 'remote' | 'manual';
   deactivatedAt?: number;
-  deactivatedBy?: 'biometric' | 'remote_unlock';
+  deactivatedBy?: 'biometric' | 'pin' | 'remote_unlock';
 }
 
 const DEFAULT_CONFIG: Omit<AlarmConfig, 'deviceId'> = {
@@ -72,7 +72,7 @@ export class AlarmManager {
     return event;
   }
 
-  deactivateAlarm(deviceId: string, deactivatedBy: 'biometric' | 'remote_unlock'): boolean {
+  deactivateAlarm(deviceId: string, deactivatedBy: 'biometric' | 'pin' | 'remote_unlock'): boolean {
     const alarm = this.activeAlarms.get(deviceId);
     if (!alarm) return false;
 

@@ -116,7 +116,13 @@ export default function DeviceSetupScreen() {
     logStep('device_setup: finished');
     await SecureStore.setItemAsync('post_login_permissions_done', 'true');
     setStatus('done');
-    router.replace('/(tabs)');
+
+    // PIN setup is the last onboarding step: it runs once everything it
+    // depends on is done — signed in, Vosk model downloaded (both gates sit
+    // ahead of this screen), permissions requested. AuthGuard skips straight
+    // past it on later launches once a PIN exists or the prompt was declined.
+    const pinPrompted = await SecureStore.getItemAsync('pin_setup_prompted');
+    router.replace(pinPrompted === 'true' ? '/(tabs)' : '/pin-setup?onboarding=1');
   }
 
   return (

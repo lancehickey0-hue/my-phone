@@ -86,7 +86,11 @@ export class BiometricAuth {
     return this.authenticate({
       promptMessage: `Unlock ${deviceName}`,
       cancelLabel: 'Cancel',
-      disableDeviceFallback: false,
+      // No device-passcode fallback: My-Phone's own PIN is the fallback now
+      // (app/pin-setup.tsx). Accepting the phone's screen-lock passcode here
+      // would mean anyone who watched the owner unlock their phone could also
+      // clear a My-Phone lockout — exactly the person this is meant to stop.
+      disableDeviceFallback: true,
     });
   }
 

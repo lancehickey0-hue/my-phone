@@ -63,6 +63,7 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, isLoading } = useConvexAuth();
   const { signOut } = useAuthActions();
   const currentUser = useQuery(api.auth.currentUser);
+  const pinStatus = useQuery(api.pin.status);
   const ensureProfile = useMutation(api.profiles.ensureProfile);
   const triggerAlarm = useMutation(api.devices.triggerAlarm);
   const devices = useQuery(api.devices.list) ?? [];
@@ -247,15 +248,33 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
       }
     }
 
-    // Real, confirmed user — safe to enter the app now. Post-login
-    // permissions (notifications, mic, phone_state, device_admin) still
-    // need to be requested once per install — see device-setup.tsx.
+    // Real, confirmed user — safe to enter the app now. Two onboarding steps
+    // may still be outstanding, in order: post-login permissions
+    // (notifications, mic, phone_state, device_admin — device-setup.tsx),
+    // then the unlock PIN (pin-setup.tsx). Both sit after the Vosk model
+    // download, which the wake-word-setup gate above already guarantees.
     if (segments[0] === 'auth' || segments[0] === 'wake-word-setup') {
-      SecureStore.getItemAsync('post_login_permissions_done').then((done) => {
-        router.replace(done === 'true' ? '/(tabs)' : '/device-setup');
-      });
+      (async () => {
+        const permsDone = await SecureStore.getItemAsync('post_login_permissions_done');
+        if (permsDone !== 'true') {
+          router.replace('/device-setup');
+          return;
+        }
+
+        // Hold off until the PIN status resolves rather than landing on
+        // (tabs) and bouncing to /pin-setup a moment later.
+        if (pinStatus === undefined) return;
+
+        const pinPrompted = await SecureStore.getItemAsync('pin_setup_prompted');
+        if (!pinStatus.isSet && pinPrompted !== 'true') {
+          router.replace('/pin-setup?onboarding=1');
+          return;
+        }
+
+        router.replace('/(tabs)');
+      })();
     }
-  }, [isAuthenticated, isLoading, currentUser, segments, setupChecked]);
+  }, [isAuthenticated, isLoading, currentUser, segments, setupChecked, pinStatus]);
 
   return <>{children}</>;
 }
@@ -280,6 +299,7 @@ export default function RootLayout() {
           <Stack.Screen name="device-setup" options={{ headerShown: false }} />
           <Stack.Screen name="voice-setup" options={{ headerShown: false, presentation: 'modal' }} />
           <Stack.Screen name="biometric-setup" options={{ headerShown: false, presentation: 'modal' }} />
+          <Stack.Screen name="pin-setup" options={{ headerShown: false }} />
           <Stack.Screen name="manage-users" options={{ headerShown: false, presentation: 'modal' }} />
           <Stack.Screen name="activity-log" options={{ headerShown: false, presentation: 'modal' }} />
         </Stack>

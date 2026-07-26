@@ -105,6 +105,28 @@ const schema = defineSchema({
     .index("by_userId", ["userId"])
     .index("by_credentialId", ["credentialId"]),
 
+  // PIN unlock credential — one per user, the fallback for when biometrics
+  // aren't available (no hardware, not enrolled, wet/gloved hands, sensor
+  // lockout after too many failed face/finger reads). The PIN itself is
+  // never stored: only a PBKDF2-HMAC-SHA512 derivation of it, with a
+  // per-credential random salt. Verification happens server-side
+  // (convex/pinActions.ts) so a stolen device can't brute-force it offline.
+  pinCredentials: defineTable({
+    userId: v.id("users"),
+    hash: v.string(), // hex-encoded derived key
+    salt: v.string(), // hex-encoded random salt
+    iterations: v.number(), // recorded per-credential so it can be raised later
+    digest: v.string(), // e.g. "sha512"
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    // Consecutive failed attempts. Reset to 0 on any successful verify.
+    failedAttempts: v.number(),
+    // Epoch ms until which verification is refused outright. Set once
+    // failedAttempts crosses the threshold, on an escalating ladder.
+    lockedUntil: v.optional(v.number()),
+    lastFailedAt: v.optional(v.number()),
+  }).index("by_userId", ["userId"]),
+
   // Activity log
   activityLog: defineTable({
     userId: v.id("users"),

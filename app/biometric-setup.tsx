@@ -181,12 +181,20 @@ export default function BiometricSetupScreen() {
 
       {/* Complete step */}
       {step === 'complete' && (
-        <TouchableOpacity
-          style={styles.primaryButton}
-          onPress={() => router.replace('/(tabs)')}
-        >
-          <Text style={styles.primaryButtonText}>Done</Text>
-        </TouchableOpacity>
+        <>
+          <TouchableOpacity
+            style={styles.primaryButton}
+            onPress={() => router.replace('/(tabs)')}
+          >
+            <Text style={styles.primaryButtonText}>Done</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.secondaryButton}
+            onPress={() => router.replace('/pin-setup')}
+          >
+            <Text style={styles.secondaryButtonText}>Set Up a Backup PIN</Text>
+          </TouchableOpacity>
+        </>
       )}
 
       {/* Unavailable step */}

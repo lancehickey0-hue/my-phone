@@ -20,6 +20,7 @@ export default function ProfileTab() {
   const subscription = useQuery(api.billing.getSubscription);
   const voiceEnrollments = useQuery(api.voiceEnrollment.listEnrollments) ?? [];
   const biometricCreds = useQuery(api.biometric.listCredentials) ?? [];
+  const pinStatus = useQuery(api.pin.status);
   const { signOut } = useAuthActions();
   const router = useRouter();
 
@@ -140,6 +141,19 @@ export default function ProfileTab() {
               {biometricCreds.length > 0
                 ? `✅ ${biometricCreds.length} credential${biometricCreds.length !== 1 ? 's' : ''} registered`
                 : '⚠️ Not set up'}
+            </Text>
+          </View>
+          <Text style={styles.chevron}>›</Text>
+        </Pressable>
+
+        <View style={styles.divider} />
+
+        <Pressable style={styles.securityRow} onPress={() => router.push('/pin-setup')}>
+          <Text style={styles.securityEmoji}>🔢</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.securityLabel}>PIN Unlock</Text>
+            <Text style={styles.securityStatus}>
+              {pinStatus?.isSet ? '✅ PIN set' : '⚠️ Not set up'}
             </Text>
           </View>
           <Text style={styles.chevron}>›</Text>
