@@ -73,7 +73,7 @@ export class BiometricAuth {
 
       const error = (result as any).error as string;
       let errorCode: AuthResult['errorCode'] = 'system_error';
-      if (error === 'user_cancel' || error === 'SystemCancel') errorCode = 'user_cancel';
+      if (error === 'user_cancel' || error === 'system_cancel' || error === 'app_cancel') errorCode = 'user_cancel';
       else if (error === 'lockout' || error === 'lockout_permanent') errorCode = 'lockout';
 
       return { success: false, error, errorCode };
@@ -82,11 +82,44 @@ export class BiometricAuth {
     }
   }
 
+  // Silencing the alarm must take the owner's actual fingerprint/face.
+  // With device fallback on, anyone who knows (or shoulder-surfed) the
+  // phone's PIN could stop it, which defeats the point. Fallback is only
+  // allowed when no biometrics are enrolled at all -- otherwise a phone
+  // with no fingerprint/face set up could never be unlocked.
   static async authenticateForUnlock(deviceName: string): Promise<AuthResult> {
+    let biometricsEnrolled = false;
+    try {
+      biometricsEnrolled =
+        (await LocalAuthentication.hasHardwareAsync()) &&
+        (await LocalAuthentication.isEnrolledAsync());
+    } catch {
+      biometricsEnrolled = false;
+    }
+
+    if (!biometricsEnrolled) {
+      try {
+        const result = await LocalAuthentication.authenticateAsync({
+          promptMessage: `Unlock ${deviceName}`,
+          cancelLabel: 'Cancel',
+          disableDeviceFallback: false,
+        });
+        if (result.success) return { success: true };
+        const error = (result as any).error as string;
+        return {
+          success: false,
+          error,
+          errorCode: error === 'user_cancel' || error === 'system_cancel' ? 'user_cancel' : 'system_error',
+        };
+      } catch (e: any) {
+        return { success: false, error: e.message, errorCode: 'system_error' };
+      }
+    }
+
     return this.authenticate({
       promptMessage: `Unlock ${deviceName}`,
       cancelLabel: 'Cancel',
-      disableDeviceFallback: false,
+      disableDeviceFallback: true,
     });
   }
 

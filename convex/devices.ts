@@ -2,6 +2,7 @@ import { getAuthUserId } from "@convex-dev/auth/server";
 import { mutation, query, action, internalAction, internalMutation, internalQuery } from "./_generated/server";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
+import { deleteDeviceSecrets, setDeviceSecret } from "./deviceAuth";
 
 // Default wake phrases per device type
 const DEFAULT_WAKE_PHRASES: Record<string, string> = {
@@ -169,6 +170,7 @@ export const remove = mutation({
       timestamp: Date.now(),
     });
 
+    await deleteDeviceSecrets(ctx, args.deviceId);
     await ctx.db.delete(args.deviceId);
     return null;
   },
@@ -216,16 +218,13 @@ export const triggerAlarm = mutation({
 // This exists because the JS-bridge emit path silently fails whenever the
 // app's React context isn't alive (backgrounded, screen off, process
 // trimmed) — exactly when a "find my device" feature most needs to work.
-// Scoped by physicalDeviceId instead of user auth since this call
-// originates from the device itself, not an interactive session.
-export const triggerAlarmByPhysicalId = internalMutation({
-  args: { physicalDeviceId: v.string() },
+// The caller (http.ts) has already authenticated the device by its
+// install secret, so this takes a verified deviceId.
+export const triggerAlarmByDeviceId = internalMutation({
+  args: { deviceId: v.id("devices") },
   returns: v.null(),
   handler: async (ctx, args) => {
-    const device = await ctx.db
-      .query("devices")
-      .withIndex("by_physicalDeviceId", (q) => q.eq("physicalDeviceId", args.physicalDeviceId))
-      .first();
+    const device = await ctx.db.get(args.deviceId);
     if (!device) return null;
 
     await ctx.db.patch(device._id, {
@@ -249,56 +248,39 @@ export const triggerAlarmByPhysicalId = internalMutation({
 // Update a device's location by physicalDeviceId — called from the native
 // background location task (src/lib/BackgroundLocation.ts), which has no
 // user session available since it can run headless while the app is
-// backgrounded or killed. Scoped by physicalDeviceId, not user auth, same
-// pattern as triggerAlarmByPhysicalId above.
-export const updateLocationByPhysicalId = internalMutation({
+// backgrounded or killed. http.ts authenticates the device by its install
+// secret before calling this.
+export const updateLocationByDeviceId = internalMutation({
   args: {
-    physicalDeviceId: v.string(),
+    deviceId: v.id("devices"),
     latitude: v.number(),
     longitude: v.number(),
   },
   returns: v.null(),
   handler: async (ctx, args) => {
-    const device = await ctx.db
-      .query("devices")
-      .withIndex("by_physicalDeviceId", (q) => q.eq("physicalDeviceId", args.physicalDeviceId))
-      .first();
-    if (!device) {
-      // Diagnostic for a mismatch class of bug: the background task resolved
-      // a physicalDeviceId that doesn't match any registered device, so this
-      // write was a silent no-op. Logging it here surfaces the exact
-      // mismatched ID in Log Deck instead of vanishing with zero trace.
-      await ctx.runMutation(internal.debugLogs.add, {
-        source: "BackgroundLocation",
-        message: "no device matched physicalDeviceId=" + args.physicalDeviceId,
-        level: "error",
-      });
-      return null;
-    }
+    const device = await ctx.db.get(args.deviceId);
+    if (!device) return null;
 
     await ctx.db.patch(device._id, {
       lastLatitude: args.latitude,
       lastLongitude: args.longitude,
       lastSeenAt: Date.now(),
-      status: "connected",
+      // A location ping must not wipe out an active alarm/lock status.
+      ...(device.isAlarmActive || device.isLocked ? {} : { status: "connected" as const }),
     });
 
     return null;
   },
 });
 
-// Read a device's lock state by physicalDeviceId — polled by the native
+// Read a device's lock state — polled by the native
 // WakeWordService so it can perform the real OS-level lock (lockNow) even
-// when the app's JS isn't alive. Scoped by physicalDeviceId, not user auth,
-// since the call originates from the device itself.
-export const getLockStateByPhysicalId = internalQuery({
-  args: { physicalDeviceId: v.string() },
+// when the app's JS isn't alive. http.ts authenticates the device first.
+export const getLockStateByDeviceId = internalQuery({
+  args: { deviceId: v.id("devices") },
   returns: v.object({ isLocked: v.boolean(), isAlarmActive: v.boolean() }),
   handler: async (ctx, args) => {
-    const device = await ctx.db
-      .query("devices")
-      .withIndex("by_physicalDeviceId", (q) => q.eq("physicalDeviceId", args.physicalDeviceId))
-      .first();
+    const device = await ctx.db.get(args.deviceId);
     return { isLocked: !!device?.isLocked, isAlarmActive: !!device?.isAlarmActive };
   },
 });
@@ -437,7 +419,7 @@ export const updateLocation = mutation({
       lastLocationName: args.locationName,
       lastSeenAt: Date.now(),
       batteryLevel: args.batteryLevel,
-      status: "connected",
+      ...(device.isAlarmActive || device.isLocked ? {} : { status: "connected" as const }),
     });
 
     return null;
@@ -449,6 +431,9 @@ export const registerPhysicalDevice = mutation({
     deviceId: v.id("devices"),
     physicalDeviceId: v.string(),
     expoPushToken: v.optional(v.string()),
+    // Present when the user manually links ("Mine") this install; absent
+    // when the app is only refreshing its push token.
+    deviceSecret: v.optional(v.string()),
   },
   returns: v.null(),
   handler: async (ctx, args) => {
@@ -459,9 +444,12 @@ export const registerPhysicalDevice = mutation({
     await ctx.db.patch(args.deviceId, {
       physicalDeviceId: args.physicalDeviceId,
       expoPushToken: args.expoPushToken,
-      status: "connected",
+      ...(device.isAlarmActive || device.isLocked ? {} : { status: "connected" as const }),
       lastSeenAt: Date.now(),
     });
+    if (args.deviceSecret) {
+      await setDeviceSecret(ctx, args.deviceId, args.physicalDeviceId, args.deviceSecret);
+    }
     return null;
   },
 });
@@ -494,7 +482,7 @@ export const heartbeat = mutation({
 
     await ctx.db.patch(args.deviceId, {
       lastSeenAt: Date.now(),
-      status: "connected",
+      ...(device.isAlarmActive || device.isLocked ? {} : { status: "connected" as const }),
     });
 
     return null;

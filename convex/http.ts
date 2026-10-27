@@ -2,9 +2,40 @@ import { httpRouter } from "convex/server";
 import { httpAction } from "./_generated/server";
 import { api, internal } from "./_generated/api";
 import { auth } from "./auth";
+import type { Id } from "./_generated/dataModel";
+import type { ActionCtx } from "./_generated/server";
+import { sha256Hex } from "./deviceAuth";
 
 const http = httpRouter();
 auth.addHttpRoutes(http);
+
+// Every device-originated call must carry { physicalDeviceId, deviceSecret }.
+// The secret is issued when the install links itself (deviceAuth.claimThisDevice)
+// and only its hash is stored server-side. Returns null when either is missing
+// or they don't match an active registration.
+async function authenticateDevice(
+  ctx: ActionCtx,
+  body: any,
+  source: string,
+): Promise<Id<"devices"> | null> {
+  const physicalDeviceId = String(body?.physicalDeviceId ?? "");
+  const deviceSecret = String(body?.deviceSecret ?? "");
+  if (!physicalDeviceId || !deviceSecret) return null;
+  const deviceId = await ctx.runQuery(internal.deviceAuth.resolveDevice, {
+    physicalDeviceId,
+    secretHash: await sha256Hex(deviceSecret),
+  });
+  if (!deviceId) {
+    await ctx.runMutation(internal.debugLogs.add, {
+      source,
+      message: "rejected device call: unknown install or bad secret, physicalDeviceId=" + physicalDeviceId,
+      level: "warn",
+    });
+  }
+  return deviceId;
+}
+
+const unauthorized = () => new Response(null, { status: 401 });
 
 http.route({
   path: "/logDebug",
@@ -30,12 +61,9 @@ http.route({
   handler: httpAction(async (ctx, request) => {
     try {
       const body = await request.json();
-      const physicalDeviceId = String(body.physicalDeviceId ?? "");
-      if (physicalDeviceId) {
-        await ctx.runMutation(internal.devices.triggerAlarmByPhysicalId, {
-          physicalDeviceId,
-        });
-      }
+      const deviceId = await authenticateDevice(ctx, body, "triggerAlarmDevice");
+      if (!deviceId) return unauthorized();
+      await ctx.runMutation(internal.devices.triggerAlarmByDeviceId, { deviceId });
     } catch (e) {
       // Never let a malformed request crash the endpoint
     }
@@ -54,11 +82,9 @@ http.route({
       });
     try {
       const body = await request.json();
-      const physicalDeviceId = String(body.physicalDeviceId ?? "");
-      if (!physicalDeviceId) return json({ isLocked: false, isAlarmActive: false });
-      const state = await ctx.runQuery(internal.devices.getLockStateByPhysicalId, {
-        physicalDeviceId,
-      });
+      const deviceId = await authenticateDevice(ctx, body, "deviceLockState");
+      if (!deviceId) return unauthorized();
+      const state = await ctx.runQuery(internal.devices.getLockStateByDeviceId, { deviceId });
       return json(state);
     } catch (e) {
       return json({ isLocked: false, isAlarmActive: false });
@@ -74,16 +100,18 @@ http.route({
   handler: httpAction(async (ctx, request) => {
     try {
       const body = await request.json();
-      const physicalDeviceId = String(body.physicalDeviceId ?? "");
       const latitude = Number(body.latitude);
       const longitude = Number(body.longitude);
-      if (physicalDeviceId && Number.isFinite(latitude) && Number.isFinite(longitude)) {
-        await ctx.runMutation(internal.devices.updateLocationByPhysicalId, {
-          physicalDeviceId,
-          latitude,
-          longitude,
-        });
+      if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+        return new Response(null, { status: 400 });
       }
+      const deviceId = await authenticateDevice(ctx, body, "BackgroundLocation");
+      if (!deviceId) return unauthorized();
+      await ctx.runMutation(internal.devices.updateLocationByDeviceId, {
+        deviceId,
+        latitude,
+        longitude,
+      });
     } catch (e) {
       // Never let a malformed background location update crash the endpoint
     }

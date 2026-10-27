@@ -3,6 +3,7 @@ package com.myphone.app
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.app.Service
 import android.app.admin.DevicePolicyManager
 import android.content.ComponentName
@@ -10,6 +11,8 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.media.AudioAttributes
+import android.media.AudioManager
+import android.net.Uri
 import android.media.MediaPlayer
 import android.os.Build
 import android.os.IBinder
@@ -45,6 +48,8 @@ class WakeWordService : Service() {
     private val TAG = "WakeWordService"
     private val CHANNEL_ID = "wake_word_channel"
     private val NOTIFICATION_ID = 1001
+    private val ALARM_CHANNEL_ID = "my_phone_alarm_channel"
+    private val ALARM_NOTIFICATION_ID = 1002
 
     private val CONVEX_LOG_URL = "https://cheery-buffalo-947.convex.site/logDebug"
     private val CONVEX_TRIGGER_ALARM_URL = "https://cheery-buffalo-947.convex.site/triggerAlarmDevice"
@@ -124,6 +129,14 @@ class WakeWordService : Service() {
         }
     }
 
+    private fun loadDeviceSecret(): String? {
+        return try {
+            getSharedPreferences("myphone_prefs", MODE_PRIVATE).getString("device_secret", null)
+        } catch (e: Exception) {
+            null
+        }
+    }
+
     // Triggers the alarm/lock directly in Convex over plain HTTP, bypassing
     // the JS bridge entirely. This is the reliable path: the JS emit below
     // silently no-ops whenever reactContext is null (app backgrounded,
@@ -133,8 +146,9 @@ class WakeWordService : Service() {
     // is next alive, the same way a remote lock from another device does.
     private fun triggerAlarmNative() {
         val physicalDeviceId = loadPhysicalDeviceId()
-        if (physicalDeviceId.isNullOrEmpty()) {
-            log("Cannot trigger alarm natively — no physicalDeviceId persisted yet", "warn")
+        val deviceSecret = loadDeviceSecret()
+        if (physicalDeviceId.isNullOrEmpty() || deviceSecret.isNullOrEmpty()) {
+            log("Cannot trigger alarm natively — device not linked yet (no id/secret)", "warn")
             return
         }
         logExecutor.execute {
@@ -149,6 +163,7 @@ class WakeWordService : Service() {
 
                 val body = JSONObject()
                 body.put("physicalDeviceId", physicalDeviceId)
+                body.put("deviceSecret", deviceSecret)
 
                 val writer = OutputStreamWriter(conn.outputStream)
                 writer.write(body.toString())
@@ -210,6 +225,8 @@ class WakeWordService : Service() {
     // alarm is deactivated (e.g. biometric unlock), not just start.
     private var alarmPlayer: MediaPlayer? = null
     @Volatile private var lastAlarmState = false
+    // Alarm-stream volume before we forced it to max, restored on stop.
+    private var savedAlarmVolume: Int? = null
 
     // Speaker verification state. referenceVoicePrint is loaded once at
     // service start; lastVectorPassedVerification is set by onSpeakerVector
@@ -316,9 +333,12 @@ class WakeWordService : Service() {
         log("Lock poller started (every ${LOCK_POLL_INTERVAL_SECONDS}s)")
     }
 
+    @Volatile private var lockPollUnauthorizedLogged = false
+
     private fun pollLockState() {
         val physicalDeviceId = loadPhysicalDeviceId()
-        if (physicalDeviceId.isNullOrEmpty()) return
+        val deviceSecret = loadDeviceSecret()
+        if (physicalDeviceId.isNullOrEmpty() || deviceSecret.isNullOrEmpty()) return
         try {
             val url = URL(CONVEX_LOCK_STATE_URL)
             val conn = url.openConnection() as HttpURLConnection
@@ -328,16 +348,28 @@ class WakeWordService : Service() {
             conn.connectTimeout = 5000
             conn.readTimeout = 5000
 
-            val body = JSONObject().put("physicalDeviceId", physicalDeviceId)
+            val body = JSONObject()
+                .put("physicalDeviceId", physicalDeviceId)
+                .put("deviceSecret", deviceSecret)
             val writer = OutputStreamWriter(conn.outputStream)
             writer.write(body.toString())
             writer.flush()
             writer.close()
 
             val code = conn.responseCode
+            if (code != 200) {
+                // inputStream throws on non-2xx; 401 means this install's
+                // secret isn't registered (re-open the app to re-link).
+                conn.disconnect()
+                if (code == 401 && !lockPollUnauthorizedLogged) {
+                    lockPollUnauthorizedLogged = true
+                    log("Lock poll rejected (401) — device not linked", "warn")
+                }
+                return
+            }
+            lockPollUnauthorizedLogged = false
             val response = conn.inputStream.bufferedReader().use { it.readText() }
             conn.disconnect()
-            if (code != 200) return
 
             val json = JSONObject(response)
             val isLocked = json.optBoolean("isLocked", false)
@@ -383,29 +415,38 @@ class WakeWordService : Service() {
     // Plays res/raw/alarm.mp3 directly, independent of the JS bridge --
     // this is what makes the alarm sound immediately when triggered while
     // the app is backgrounded/killed, instead of waiting for JS to wake up.
+    // Synchronized: called from the Vosk callback thread, the lock-poller
+    // thread and the RN module thread.
+    @Synchronized
     private fun startAlarmSound() {
         try {
             if (alarmPlayer != null) return
-            val player = MediaPlayer.create(this, R.raw.alarm)
+            // Attributes must be supplied at creation: MediaPlayer.create()
+            // prepares immediately, and attributes set after prepare are
+            // ignored -- the old code was silently playing on the MEDIA
+            // stream, not the alarm stream.
+            val attrs = AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_ALARM)
+                .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                .build()
+            val am = getSystemService(AUDIO_SERVICE) as AudioManager
+            val player = MediaPlayer.create(this, R.raw.alarm, attrs, am.generateAudioSessionId())
             if (player == null) {
                 log("startAlarmSound: MediaPlayer.create returned null", "error")
                 return
             }
             player.isLooping = true
-            player.setAudioAttributes(
-                AudioAttributes.Builder()
-                    .setUsage(AudioAttributes.USAGE_ALARM)
-                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                    .build()
-            )
+            forceAlarmVolumeMax()
             player.start()
             alarmPlayer = player
+            showAlarmNotification()
             log("Native alarm sound started")
         } catch (e: Throwable) {
             log("startAlarmSound failed: " + e.message, "error")
         }
     }
 
+    @Synchronized
     private fun stopAlarmSound() {
         try {
             alarmPlayer?.let {
@@ -413,9 +454,79 @@ class WakeWordService : Service() {
                 it.release()
             }
             alarmPlayer = null
+            restoreAlarmVolume()
+            getSystemService(NotificationManager::class.java).cancel(ALARM_NOTIFICATION_ID)
             log("Native alarm sound stopped")
         } catch (e: Throwable) {
             log("stopAlarmSound failed: " + e.message, "error")
+        }
+    }
+
+    // Called from WakeWordModule.stopAlarm() right after a successful
+    // biometric unlock, so the siren stops instantly instead of on the next
+    // lock poll.
+    fun stopAlarmFromApp() {
+        lastAlarmState = false
+        stopAlarmSound()
+    }
+
+    // Called from WakeWordModule.startAlarm() when the app's JS sees this
+    // device's alarm go active (e.g. remote trigger) so only ONE siren plays.
+    fun startAlarmFromApp() {
+        lastAlarmState = true
+        startAlarmSound()
+    }
+
+    fun isAlarmSounding(): Boolean = alarmPlayer != null
+
+    // USAGE_ALARM plays on the alarm stream; if the user has that turned
+    // down the siren is inaudible. Force it to max while sounding.
+    private fun forceAlarmVolumeMax() {
+        try {
+            val am = getSystemService(AUDIO_SERVICE) as AudioManager
+            if (savedAlarmVolume == null) savedAlarmVolume = am.getStreamVolume(AudioManager.STREAM_ALARM)
+            am.setStreamVolume(AudioManager.STREAM_ALARM, am.getStreamMaxVolume(AudioManager.STREAM_ALARM), 0)
+        } catch (e: Throwable) {
+            log("forceAlarmVolumeMax failed (non-fatal): " + e.message, "warn")
+        }
+    }
+
+    private fun restoreAlarmVolume() {
+        val saved = savedAlarmVolume ?: return
+        savedAlarmVolume = null
+        try {
+            val am = getSystemService(AUDIO_SERVICE) as AudioManager
+            am.setStreamVolume(AudioManager.STREAM_ALARM, saved, 0)
+        } catch (e: Throwable) {
+            log("restoreAlarmVolume failed (non-fatal): " + e.message, "warn")
+        }
+    }
+
+    // High-priority notification shown while the siren plays. Tapping it
+    // opens the app straight to the lockout screen (myphone://lockout),
+    // which is the only place the alarm can be silenced -- this is what
+    // gets the owner to biometric unlock even if the app's JS was dead.
+    private fun showAlarmNotification() {
+        try {
+            val open = Intent(Intent.ACTION_VIEW, Uri.parse("myphone://lockout")).apply {
+                setPackage(packageName)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            }
+            val pending = PendingIntent.getActivity(
+                this, 0, open,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            val notification = Notification.Builder(this, ALARM_CHANNEL_ID)
+                .setContentTitle("My-Phone alarm is sounding")
+                .setContentText("Tap and verify with your fingerprint or face to stop it")
+                .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
+                .setCategory(Notification.CATEGORY_ALARM)
+                .setOngoing(true)
+                .setContentIntent(pending)
+                .build()
+            getSystemService(NotificationManager::class.java).notify(ALARM_NOTIFICATION_ID, notification)
+        } catch (e: Throwable) {
+            log("showAlarmNotification failed (non-fatal): " + e.message, "warn")
         }
     }
 
@@ -589,6 +700,13 @@ class WakeWordService : Service() {
     private fun emitWakeWordDetected() {
         log("emitWakeWordDetected() called")
 
+        // Sound off immediately, locally -- don't wait up to 10s for the
+        // lock poller to see the flag come back from Convex. Marking
+        // lastAlarmState keeps the poller from re-starting it, and still
+        // lets it stop the siren on the true->false edge (biometric unlock).
+        startAlarmSound()
+        lastAlarmState = true
+
         // Reliable path first — works whether or not JS is alive.
         triggerAlarmNative()
 
@@ -620,7 +738,18 @@ class WakeWordService : Service() {
             description = "Listening for wake word"
             setShowBadge(false)
         }
-        getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
+        val manager = getSystemService(NotificationManager::class.java)
+        manager.createNotificationChannel(channel)
+
+        val alarmChannel = NotificationChannel(
+            ALARM_CHANNEL_ID,
+            "My-Phone Alarm",
+            NotificationManager.IMPORTANCE_HIGH
+        ).apply {
+            description = "Shown while the find-my-phone alarm is sounding"
+            setSound(null, null) // the siren itself is the sound
+        }
+        manager.createNotificationChannel(alarmChannel)
     }
 
     private fun buildNotification(): Notification {

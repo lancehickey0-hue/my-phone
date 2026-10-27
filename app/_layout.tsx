@@ -11,8 +11,13 @@ import * as Notifications from 'expo-notifications';
 import { api } from '../convex/_generated/api';
 import { colors } from '../src/lib/theme';
 import { getAlarmManager } from '../src/native/AlarmManager';
-import * as Application from 'expo-application';
-import '../src/lib/BackgroundLocation';
+import * as Location from 'expo-location';
+import { startBackgroundLocationTracking } from '../src/lib/BackgroundLocation';
+import {
+  defaultDeviceName,
+  getOrCreateDeviceSecret,
+  getPhysicalDeviceId,
+} from '../src/lib/deviceIdentity';
 
 const nativeStorage = Platform.OS !== 'web' ? {
   getItem: SecureStore.getItemAsync,
@@ -36,6 +41,14 @@ function logGlobalError(message: string) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ source: 'GlobalError', message, level: 'error' }),
+  }).catch(() => {});
+}
+
+function logGlobalInfo(message: string) {
+  fetch(`${GLOBAL_ERROR_CONVEX_URL}/logDebug`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ source: 'DeviceLink', message, level: 'info' }),
   }).catch(() => {});
 }
 
@@ -64,48 +77,51 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
   const { signOut } = useAuthActions();
   const currentUser = useQuery(api.auth.currentUser);
   const ensureProfile = useMutation(api.profiles.ensureProfile);
-  const triggerAlarm = useMutation(api.devices.triggerAlarm);
+  const claimThisDevice = useMutation(api.deviceAuth.claimThisDevice);
   const devices = useQuery(api.devices.list) ?? [];
   const devicesRef = useRef(devices);
   devicesRef.current = devices;
-  const triggerAlarmRef = useRef(triggerAlarm);
-  triggerAlarmRef.current = triggerAlarm;
   const segments = useSegments();
   const router = useRouter();
   const profileCreated = useRef(false);
   const deviceRegistered = useRef(false);
   const [setupChecked, setSetupChecked] = useState(false);
 
+  const segmentsRef = useRef(segments);
+  segmentsRef.current = segments;
+
+  // Opens the lockout screen for THIS install's device, once. Guarded so a
+  // wake-word event, a push notification and AlarmWatcher firing for the
+  // same alarm don't stack three lockout screens.
+  const openLockoutForThisDevice = (deviceId?: string) => {
+    const physicalId = (globalThis as any).__myPhoneDeviceId;
+    const myDevice = devicesRef.current.find((d) => d.physicalDeviceId === physicalId);
+    // Only ever lock out the phone that's actually alarming.
+    if (deviceId && myDevice && deviceId !== myDevice._id) return;
+    if (segmentsRef.current[0] === 'lockout') return;
+    if (myDevice) getAlarmManager().triggerAlarm(myDevice._id, 'voice');
+    router.push({
+      pathname: '/lockout',
+      params: myDevice
+        ? { deviceId: myDevice._id, deviceName: myDevice.name, deviceType: myDevice.type }
+        : {},
+    });
+  };
+  const openLockoutRef = useRef(openLockoutForThisDevice);
+  openLockoutRef.current = openLockoutForThisDevice;
+
   // ── Wake word listener ────────────────────────────────────────────────────
+  // The native WakeWordService has already started the siren and flipped
+  // the alarm on in Convex by the time this fires (it does both itself so
+  // they work with the app backgrounded). JS only needs to show lockout.
   useEffect(() => {
     if (!isAuthenticated) return;
     const { WakeWordModule } = NativeModules;
     if (!WakeWordModule) return;
 
     const emitter = new NativeEventEmitter(WakeWordModule);
-    const sub = emitter.addListener('WakeWordDetected', async () => {
-      const physicalId = (globalThis as any).__myPhoneDeviceId;
-      const allDevices = devicesRef.current;
-      const myDevice = allDevices.find((d) => d.physicalDeviceId === physicalId) ?? allDevices[0];
-
-      if (myDevice) {
-        try {
-          await triggerAlarmRef.current({ deviceId: myDevice._id });
-        } catch (e) {
-          console.warn('Could not trigger alarm in DB:', e);
-        }
-        getAlarmManager().triggerAlarm(myDevice._id, 'voice');
-        router.push({
-          pathname: '/lockout',
-          params: {
-            deviceId: myDevice._id,
-            deviceName: myDevice.name,
-            deviceType: myDevice.type,
-          },
-        });
-      } else {
-        router.push('/lockout');
-      }
+    const sub = emitter.addListener('WakeWordDetected', () => {
+      openLockoutRef.current();
     });
 
     return () => sub.remove();
@@ -115,41 +131,17 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!isAuthenticated) return;
 
-    const sub = Notifications.addNotificationReceivedListener((notification) => {
-      const data = notification.request.content.data as any;
+    const handle = (data: any) => {
       if (data?.type === 'alarm' && data?.deviceId) {
-        const deviceId = data.deviceId as string;
-        const allDevices = devicesRef.current;
-        const device = allDevices.find((d) => d._id === deviceId);
-        getAlarmManager().triggerAlarm(deviceId, 'remote');
-        router.push({
-          pathname: '/lockout',
-          params: {
-            deviceId,
-            deviceName: device?.name ?? 'This Device',
-            deviceType: device?.type ?? 'phone',
-          },
-        });
+        openLockoutRef.current(String(data.deviceId));
       }
-    });
-
-    const tapSub = Notifications.addNotificationResponseReceivedListener((response) => {
-      const data = response.notification.request.content.data as any;
-      if (data?.type === 'alarm' && data?.deviceId) {
-        const deviceId = data.deviceId as string;
-        const allDevices = devicesRef.current;
-        const device = allDevices.find((d) => d._id === deviceId);
-        getAlarmManager().triggerAlarm(deviceId, 'remote');
-        router.push({
-          pathname: '/lockout',
-          params: {
-            deviceId,
-            deviceName: device?.name ?? 'This Device',
-            deviceType: device?.type ?? 'phone',
-          },
-        });
-      }
-    });
+    };
+    const sub = Notifications.addNotificationReceivedListener((n) =>
+      handle(n.request.content.data),
+    );
+    const tapSub = Notifications.addNotificationResponseReceivedListener((r) =>
+      handle(r.notification.request.content.data),
+    );
 
     return () => {
       sub.remove();
@@ -211,40 +203,57 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
 
     if (!profileCreated.current) {
       profileCreated.current = true;
+      deviceRegistered.current = true;
 
-      ensureProfile().catch(() => {
-        profileCreated.current = false;
-      });
+      (async () => {
+        // 1. Resolve this install's stable ID and publish it for the rest
+        //    of the app (wake word, LockWatcher, heartbeat all read it).
+        let physicalDeviceId = '';
+        try {
+          physicalDeviceId = await getPhysicalDeviceId();
+          (globalThis as any).__myPhoneDeviceId = physicalDeviceId;
+        } catch (e) {
+          console.warn('Could not get device ID:', e);
+        }
 
-      if (!deviceRegistered.current) {
-        deviceRegistered.current = true;
-        (async () => {
-          try {
-            let physicalDeviceId = Platform.OS === 'android'
-              ? Application.androidId ?? ''
-              : (await Application.getIosIdForVendorAsync()) ?? '';
+        // 2. Profile must exist first — claimThisDevice reads maxDevices.
+        try {
+          await ensureProfile();
+        } catch {
+          profileCreated.current = false;
+          deviceRegistered.current = false;
+          return;
+        }
+        if (!physicalDeviceId) return;
 
-            if (!physicalDeviceId) {
-              const stored = await SecureStore.getItemAsync('device_uuid');
-              if (stored) {
-                physicalDeviceId = stored;
-              } else {
-                const uuid = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
-                  const r = Math.random() * 16 | 0;
-                  return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
-                });
-                await SecureStore.setItemAsync('device_uuid', uuid);
-                physicalDeviceId = uuid;
-              }
-            }
-            if (typeof globalThis !== 'undefined') {
-              (globalThis as any).__myPhoneDeviceId = physicalDeviceId;
-            }
-          } catch (e) {
-            console.warn('Could not get device ID:', e);
-          }
-        })();
-      }
+        // 3. Link this install to its device record automatically and
+        //    register the secret its headless calls authenticate with.
+        try {
+          const deviceSecret = await getOrCreateDeviceSecret();
+          const deviceId = await claimThisDevice({
+            physicalDeviceId,
+            deviceSecret,
+            defaultName: defaultDeviceName(),
+          });
+          logGlobalInfo(
+            deviceId
+              ? 'device linked: ' + deviceId
+              : 'device not linked: plan device limit reached',
+          );
+        } catch (e: any) {
+          deviceRegistered.current = false;
+          logGlobalError('claimThisDevice failed: ' + (e?.message ?? String(e)));
+          return;
+        }
+
+        // 4. Background tracking was previously only started from the
+        //    one-time wake-word-setup screen. Restart it on every launch
+        //    when the permission is already granted.
+        try {
+          const { status } = await Location.getBackgroundPermissionsAsync();
+          if (status === 'granted') await startBackgroundLocationTracking();
+        } catch {}
+      })();
     }
 
     // Real, confirmed user — safe to enter the app now. Post-login
@@ -275,7 +284,10 @@ export default function RootLayout() {
         >
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
           <Stack.Screen name="auth" options={{ headerShown: false }} />
-          <Stack.Screen name="lockout" options={{ headerShown: false, presentation: 'fullScreenModal' }} />
+          <Stack.Screen
+            name="lockout"
+            options={{ headerShown: false, presentation: 'fullScreenModal', gestureEnabled: false }}
+          />
           <Stack.Screen name="wake-word-setup" options={{ headerShown: false }} />
           <Stack.Screen name="device-setup" options={{ headerShown: false }} />
           <Stack.Screen name="voice-setup" options={{ headerShown: false, presentation: 'modal' }} />
