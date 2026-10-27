@@ -22,6 +22,7 @@ export const current = query({
       trialEndsAt: v.optional(v.number()),
       maxDevices: v.number(),
       biometricSetupComplete: v.optional(v.boolean()),
+      finderMessage: v.optional(v.string()),
       stripeCustomerId: v.optional(v.string()),
       stripeSubscriptionId: v.optional(v.string()),
       stripePriceId: v.optional(v.string()),
@@ -37,6 +38,24 @@ export const current = query({
       .query("profiles")
       .withIndex("by_userId", (q) => q.eq("userId", userId))
       .unique();
+  },
+});
+
+// Message shown on the lockout screen to whoever finds the phone.
+export const setFinderMessage = mutation({
+  args: { message: v.string() },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) throw new Error("Not authenticated");
+    const profile = await ctx.db
+      .query("profiles")
+      .withIndex("by_userId", (q) => q.eq("userId", userId))
+      .unique();
+    if (!profile) throw new Error("Profile not found");
+    const message = args.message.replace(/\s+/g, " ").trim().slice(0, 160);
+    await ctx.db.patch(profile._id, { finderMessage: message || undefined });
+    return null;
   },
 });
 

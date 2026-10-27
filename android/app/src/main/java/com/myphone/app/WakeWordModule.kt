@@ -229,6 +229,39 @@ class WakeWordModule(private val reactContext: ReactApplicationContext) :
     private fun getAdminComponent(): ComponentName =
         ComponentName(reactContext, LockDeviceAdminReceiver::class.java)
 
+    // Battery optimization ("Doze"/app standby) is what lets Samsung, Xiaomi
+    // etc. kill the wake-word + tracking service after a while. Being on the
+    // exemption list keeps My-Phone running so a lost phone stays findable.
+    @ReactMethod
+    fun isIgnoringBatteryOptimizations(promise: Promise) {
+        try {
+            val pm = reactContext.getSystemService(android.content.Context.POWER_SERVICE) as android.os.PowerManager
+            promise.resolve(pm.isIgnoringBatteryOptimizations(reactContext.packageName))
+        } catch (e: Exception) {
+            promise.resolve(false)
+        }
+    }
+
+    // Shows the system "Let My-Phone always run in background?" dialog.
+    @ReactMethod
+    fun requestIgnoreBatteryOptimizations() {
+        try {
+            val intent = Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                data = android.net.Uri.parse("package:" + reactContext.packageName)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            reactContext.startActivity(intent)
+        } catch (e: Exception) {
+            // Some OEM builds don't offer the direct dialog; fall back to the list.
+            try {
+                val fallback = Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                reactContext.startActivity(fallback)
+            } catch (_: Exception) {}
+        }
+    }
+
     @ReactMethod
     fun isDeviceAdminActive(promise: Promise) {
         try {

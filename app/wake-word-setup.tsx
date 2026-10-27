@@ -12,6 +12,8 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { startBackgroundLocationTracking } from '../src/lib/BackgroundLocation';
+import { Logo, PrimaryButton, TextButton } from '../src/components/ui';
+import { colors, fonts } from '../src/lib/theme';
 
 const { WakeWordModule } = NativeModules;
 
@@ -123,44 +125,36 @@ export default function WakeWordSetupScreen() {
 
   return (
     <View style={styles.container}>
-      <Text style={styles.emoji}>🎙️</Text>
-      <Text style={styles.title}>Wake Word Setup</Text>
+      <Logo width={140} />
+      <Text style={styles.title}>Setting up My-Phone</Text>
 
       {status === 'checking' && (
-        <ActivityIndicator color="#D4A843" size="large" style={{ marginTop: 24 }} />
+        <>
+          <Text style={styles.subtitle}>
+            If your phone asks about location, choose <Text style={styles.strong}>"Allow all the time"</Text>. That's how you'll find it on the map.
+          </Text>
+          <ActivityIndicator color={colors.gold} size="large" style={{ marginTop: 24 }} />
+        </>
       )}
 
       {status === 'downloading' && (
         <>
-          <Text style={styles.subtitle}>Downloading voice model ({progress}%)</Text>
-          <View style={styles.progressBar}>
+          <Text style={styles.subtitle}>Getting voice recognition ready… {progress}%</Text>
+          <View style={styles.progressBar} accessibilityLabel={`${progress} percent`}>
             <View style={[styles.progressFill, { width: `${progress}%` }]} />
           </View>
-          <Text style={styles.hint}>
-            One-time download ~50MB{'\n'}
-            Enables "Hey My-Phone" detection{'\n'}
-            Works offline, screen off, always on
-          </Text>
+          <Text style={styles.hint}>One-time download. After this it works offline, even with the screen off.</Text>
         </>
       )}
 
-      {status === 'ready' && (
-        <>
-          <Text style={styles.ready}>✅ Voice model ready!</Text>
-          <Text style={styles.subtitle}>Starting wake word detection...</Text>
-        </>
-      )}
+      {status === 'ready' && <Text style={styles.ready}>Ready ✓</Text>}
 
       {status === 'error' && (
         <>
-          <Text style={styles.errorText}>⚠️ Download failed</Text>
-          <Text style={styles.hint}>{error}</Text>
-          <Pressable style={styles.retryBtn} onPress={checkAndSetup}>
-            <Text style={styles.retryText}>Retry</Text>
-          </Pressable>
-          <Pressable style={styles.skipBtn} onPress={() => router.replace('/auth')}>
-            <Text style={styles.skipText}>Skip for now</Text>
-          </Pressable>
+          <Text style={styles.errorText}>The download didn't finish</Text>
+          <Text style={styles.hint}>Check your internet connection and try again.</Text>
+          <PrimaryButton label="Try again" onPress={checkAndSetup} style={{ alignSelf: 'stretch', marginTop: 24 }} />
+          <TextButton label="Skip for now" muted onPress={() => router.replace('/auth')} />
         </>
       )}
     </View>
@@ -168,29 +162,13 @@ export default function WakeWordSetupScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1, backgroundColor: '#06060A',
-    alignItems: 'center', justifyContent: 'center', padding: 32,
-  },
-  emoji: { fontSize: 64, marginBottom: 16 },
-  title: { fontSize: 24, fontWeight: '800', color: '#D4A843', marginBottom: 8 },
-  subtitle: { fontSize: 15, color: 'rgba(255,255,255,0.6)', textAlign: 'center', marginTop: 16 },
-  progressBar: {
-    width: '100%', height: 8, backgroundColor: 'rgba(255,255,255,0.1)',
-    borderRadius: 4, marginTop: 16, overflow: 'hidden',
-  },
-  progressFill: { height: '100%', backgroundColor: '#D4A843', borderRadius: 4 },
-  hint: {
-    fontSize: 13, color: 'rgba(255,255,255,0.35)',
-    textAlign: 'center', marginTop: 16, lineHeight: 20,
-  },
-  ready: { fontSize: 18, fontWeight: '700', color: '#4ade80', marginTop: 24 },
-  errorText: { fontSize: 18, fontWeight: '700', color: '#ef4444', marginTop: 24 },
-  retryBtn: {
-    marginTop: 24, backgroundColor: '#D4A843',
-    paddingHorizontal: 32, paddingVertical: 14, borderRadius: 12,
-  },
-  retryText: { color: '#06060A', fontWeight: '700', fontSize: 16 },
-  skipBtn: { marginTop: 12 },
-  skipText: { color: 'rgba(255,255,255,0.35)', fontSize: 14 },
+  container: { flex: 1, backgroundColor: colors.bgPrimary, alignItems: 'center', justifyContent: 'center', padding: 32, gap: 12 },
+  title: { fontFamily: fonts.extrabold, fontSize: 30, color: colors.textPrimary, textAlign: 'center', marginTop: 8 },
+  subtitle: { fontFamily: fonts.regular, fontSize: 18, lineHeight: 27, color: colors.textSecondary, textAlign: 'center' },
+  strong: { fontFamily: fonts.extrabold, color: colors.textPrimary },
+  progressBar: { width: '100%', height: 10, backgroundColor: colors.track, borderRadius: 5, marginTop: 12, overflow: 'hidden' },
+  progressFill: { height: '100%', backgroundColor: colors.gold, borderRadius: 5 },
+  hint: { fontFamily: fonts.regular, fontSize: 15, lineHeight: 22, color: colors.textMuted, textAlign: 'center', marginTop: 8 },
+  ready: { fontFamily: fonts.extrabold, fontSize: 22, color: colors.successText, marginTop: 16 },
+  errorText: { fontFamily: fonts.extrabold, fontSize: 20, color: colors.dangerText, marginTop: 16, textAlign: 'center' },
 });

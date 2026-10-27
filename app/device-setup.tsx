@@ -11,6 +11,8 @@ import {
   Platform,
 } from 'react-native';
 import { useRouter } from 'expo-router';
+import { Logo } from '../src/components/ui';
+import { colors, fonts } from '../src/lib/theme';
 
 const { WakeWordModule } = NativeModules;
 
@@ -123,20 +125,20 @@ export default function DeviceSetupScreen() {
 
   return (
     <View style={styles.container}>
-      <Text style={styles.emoji}>🔐</Text>
-      <Text style={styles.title}>Finishing Setup</Text>
-      <Text style={styles.subtitle}>A few more permissions to enable full functionality</Text>
-      <ActivityIndicator color="#D4A843" size="large" style={{ marginTop: 24 }} />
+      <Logo width={120} />
+      <Text style={styles.title}>Almost done</Text>
+      <Text style={styles.subtitle}>
+        Your phone will ask a few quick questions. Tap{' '}
+        <Text style={styles.strong}>Allow</Text> on each one so My-Phone can ring, lock and find this phone.
+      </Text>
+      <ActivityIndicator color={colors.gold} size="large" style={{ marginTop: 28 }} />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1, backgroundColor: '#06060A',
-    alignItems: 'center', justifyContent: 'center', padding: 32,
-  },
-  emoji: { fontSize: 64, marginBottom: 16 },
-  title: { fontSize: 24, fontWeight: '800', color: '#D4A843', marginBottom: 8 },
-  subtitle: { fontSize: 15, color: 'rgba(255,255,255,0.6)', textAlign: 'center', marginTop: 8 },
+  container: { flex: 1, backgroundColor: colors.bgPrimary, alignItems: 'center', justifyContent: 'center', padding: 32, gap: 14 },
+  title: { fontFamily: fonts.extrabold, fontSize: 32, color: colors.textPrimary, textAlign: 'center', marginTop: 8 },
+  subtitle: { fontFamily: fonts.regular, fontSize: 18, lineHeight: 27, color: colors.textSecondary, textAlign: 'center' },
+  strong: { fontFamily: fonts.extrabold, color: colors.textPrimary },
 });

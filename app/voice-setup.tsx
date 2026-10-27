@@ -13,7 +13,8 @@ import {
   View,
 } from 'react-native';
 import { api } from '../convex/_generated/api';
-import { borderRadius, colors, fontSize, spacing } from '../src/lib/theme';
+import { borderRadius, colors, fontSize, fonts, spacing } from '../src/lib/theme';
+import { MIN_SPEAKER_FRAMES, calibrateThreshold, cosine } from '../convex/voiceMath';
 import { deviceEmoji, getPhraseVariants } from '../src/lib/deviceIcons';
 import type { Id } from '../convex/_generated/dataModel';
 
@@ -39,6 +40,8 @@ export default function VoiceSetupScreen() {
   const [recordState, setRecordState] = useState<RecordingState>('idle');
   const [enrollmentId, setEnrollmentId] = useState<string | null>(null);
   const [permissionGranted, setPermissionGranted] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<{ score: number; threshold: number; match: boolean } | null>(null);
   const waveAnim = useRef(new Animated.Value(0)).current;
 
   const sampleCount = enrollment?.sampleCount ?? 0;
@@ -123,7 +126,25 @@ export default function VoiceSetupScreen() {
         throw new Error('No voice sample captured');
       }
 
-      await recordSample({ enrollmentId: eid as any, vector });
+      const frames = typeof result?.frames === 'number' ? result.frames : undefined;
+      const outcome = await recordSample({ enrollmentId: eid as any, vector, frames });
+      if (outcome.rejected) {
+        Alert.alert(
+          'Say it once more',
+          outcome.rejected === 'too_short'
+            ? `That was too quick to learn your voice. Say the whole phrase at a normal pace: "${wakePhrase}"`
+            : "That didn't sound like your other recordings. Make sure it's only you talking, in a quiet spot, then try again.",
+        );
+        setRecordState('idle');
+        return;
+      }
+
+      if (outcome.isComplete && outcome.weakTraining) {
+        Alert.alert(
+          'Training done, but it was noisy',
+          "Your recordings sounded quite different from each other, so this phone may not always recognize you. For best results tap \"Train again\" in a quiet room and say the phrase the same way each time.",
+        );
+      }
 
       setRecordState('done');
       setTimeout(() => setRecordState('idle'), 1000);
@@ -134,6 +155,37 @@ export default function VoiceSetupScreen() {
         : (e?.message || 'Failed to record voice sample. Please try again.');
       Alert.alert('Try Again', message);
       setRecordState('idle');
+    }
+  }
+
+  // Records one utterance (the always-on listener is paused natively while
+  // recording, so this can't set off the real alarm) and scores it against
+  // the trained voiceprint with the same per-owner threshold the phone uses.
+  async function handleTestVoice() {
+    if (!enrollment?.referenceVector || !WakeWordModule?.recordVoiceSample) return;
+    setTesting(true);
+    setTestResult(null);
+    try {
+      const result = await WakeWordModule.recordVoiceSample(JSON.stringify(getPhraseVariants(wakePhrase)));
+      const vector: number[] = Array.isArray(result?.vector) ? result.vector : [];
+      if (!vector.length) throw new Error('No voice captured');
+      const threshold = enrollment.matchThreshold ?? calibrateThreshold(enrollment.sampleVectors ?? []);
+      const score = cosine(vector, enrollment.referenceVector);
+      setTestResult({ score, threshold, match: score >= threshold && (result?.frames ?? MIN_SPEAKER_FRAMES) >= MIN_SPEAKER_FRAMES });
+    } catch (e: any) {
+      Alert.alert('Try again', e?.code === 'TIMEOUT' ? `Didn't hear "${wakePhrase}". Say it right after tapping.` : (e?.message ?? 'Could not record.'));
+    } finally {
+      setTesting(false);
+    }
+  }
+
+  async function handleRetrain() {
+    setTestResult(null);
+    try {
+      const eid = await startEnrollment({ deviceId: typedDeviceId });
+      setEnrollmentId(eid);
+    } catch (e: any) {
+      Alert.alert('Error', e?.message ?? 'Could not restart training');
     }
   }
 
@@ -239,8 +291,30 @@ export default function VoiceSetupScreen() {
           <Text style={styles.completeDesc}>
             {device?.name ?? 'This device'} will now respond to your voice saying "{wakePhrase}".
           </Text>
+          {testResult && (
+            <View style={[styles.testResult, testResult.match ? styles.testMatch : styles.testNoMatch]}>
+              <Text style={styles.testResultTitle}>
+                {testResult.match ? 'That was you ✓' : "Not a match — this phone won't ring"}
+              </Text>
+              <Text style={styles.testResultDetail}>
+                Voice match {Math.round(testResult.score * 100)}% · needs {Math.round(testResult.threshold * 100)}%
+              </Text>
+            </View>
+          )}
+          <Pressable
+            style={[styles.testBtn, testing && { opacity: 0.6 }]}
+            onPress={handleTestVoice}
+            disabled={testing}
+            accessibilityRole="button"
+          >
+            <Text style={styles.testBtnText}>{testing ? 'Listening… say the phrase' : 'Test my voice'}</Text>
+          </Pressable>
+          <Text style={styles.testHint}>Have someone else try it too. Their voice should not match.</Text>
           <Pressable style={styles.doneBtn} onPress={() => router.back()}>
             <Text style={styles.doneBtnText}>Done</Text>
+          </Pressable>
+          <Pressable onPress={handleRetrain} accessibilityRole="button" style={{ marginTop: 12, minHeight: 44, justifyContent: 'center' }}>
+            <Text style={styles.retrainText}>Train again</Text>
           </Pressable>
         </View>
       )}
@@ -261,6 +335,15 @@ export default function VoiceSetupScreen() {
 }
 
 const styles = StyleSheet.create({
+  testBtn: { marginTop: spacing.lg, height: 56, alignSelf: 'stretch', borderRadius: 16, backgroundColor: colors.gold, alignItems: 'center', justifyContent: 'center' },
+  testBtnText: { fontFamily: fonts.extrabold, fontSize: 18, color: colors.onGold },
+  testHint: { fontFamily: fonts.regular, fontSize: 14, color: colors.textMuted, textAlign: 'center', marginTop: spacing.sm, marginBottom: spacing.sm },
+  testResult: { alignSelf: 'stretch', borderRadius: 14, padding: 14, marginTop: spacing.lg, gap: 4 },
+  testMatch: { backgroundColor: colors.successDim },
+  testNoMatch: { backgroundColor: colors.dangerDim },
+  testResultTitle: { fontFamily: fonts.bold, fontSize: 17, color: colors.textPrimary },
+  testResultDetail: { fontFamily: fonts.regular, fontSize: 14, color: colors.textSecondary },
+  retrainText: { fontFamily: fonts.bold, fontSize: 15, color: colors.textMuted },
   container: { flex: 1, backgroundColor: colors.bgPrimary },
   content: { padding: spacing.lg, alignItems: 'center' },
 

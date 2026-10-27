@@ -103,6 +103,9 @@ const schema = defineSchema({
     trialEndsAt: v.optional(v.number()),
     maxDevices: v.number(),
     biometricSetupComplete: v.optional(v.boolean()),
+    // Shown on a locked, alarming phone so an honest finder can return it,
+    // e.g. "Call 555-0100". Owner-written, plain text.
+    finderMessage: v.optional(v.string()),
     // Stripe billing fields
     stripeCustomerId: v.optional(v.string()),
     stripeSubscriptionId: v.optional(v.string()),
@@ -134,6 +137,9 @@ const schema = defineSchema({
     // compared (via cosine distance) against a live wake-phrase utterance
     // to confirm it's actually the enrolled user's voice.
     referenceVector: v.optional(v.array(v.number())),
+    // Per-owner match bar, calibrated from how consistent the training
+    // samples were (convex/voiceMath.ts calibrateThreshold).
+    matchThreshold: v.optional(v.number()),
   })
     .index("by_userId", ["userId"])
     .index("by_deviceId", ["deviceId"])

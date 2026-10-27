@@ -12,7 +12,28 @@ import type { Id } from "./_generated/dataModel";
 // poll) must present { physicalDeviceId, deviceSecret }; knowing a
 // physicalDeviceId alone is no longer enough to spoof or control a device.
 
-const DEFAULT_WAKE_PHRASE = "Hey, My-Phone, where are you?";
+// The first phone on an account gets the signature phrase; every phone
+// after that gets the next one here, so two phones in the same room never
+// ring from one sentence. Plain dictionary words only: the on-device
+// recognizer runs on a fixed vocabulary, so model names ("Pixel 8") or
+// made-up names can't be heard reliably and are never used as phrases.
+export const WAKE_PHRASES = [
+  "Hey, My-Phone, where are you?",
+  "Hey, My-Phone, where is my other phone?",
+  "Hey, My-Phone, where is my second phone?",
+  "Hey, My-Phone, where is my work phone?",
+  "Hey, My-Phone, where is my backup phone?",
+  "Hey, My-Phone, where is my old phone?",
+];
+
+function normalizePhrase(p: string): string {
+  return p.toLowerCase().replace(/-/g, " ").replace(/[,.?!']/g, "").replace(/\s+/g, " ").trim();
+}
+
+function nextFreePhrase(inUse: string[]): string {
+  const used = new Set(inUse.map(normalizePhrase));
+  return WAKE_PHRASES.find((p) => !used.has(normalizePhrase(p))) ?? WAKE_PHRASES[WAKE_PHRASES.length - 1];
+}
 const MIN_SECRET_LENGTH = 32;
 
 export async function sha256Hex(input: string): Promise<string> {
@@ -130,12 +151,18 @@ export const claimThisDevice = mutation({
       const maxDevices = profile?.maxDevices ?? 5;
       if (devices.length >= maxDevices) return null;
 
+      // Unique per account so two phones never look identical.
+      const base = args.defaultName.trim().slice(0, 40) || "My Phone";
+      const taken = new Set(devices.map((d) => d.name.toLowerCase()));
+      let name = base;
+      for (let n = 2; taken.has(name.toLowerCase()); n++) name = `${base} ${n}`;
+
       const newId = await ctx.db.insert("devices", {
         userId,
-        name: args.defaultName.trim() || "My Phone",
+        name,
         type: "phone",
         status: "connected",
-        wakePhrase: DEFAULT_WAKE_PHRASE,
+        wakePhrase: nextFreePhrase(devices.map((d) => d.customWakePhrase || d.wakePhrase)),
         voiceEnrolled: false,
         isAlarmActive: false,
         isLocked: false,
@@ -146,7 +173,21 @@ export const claimThisDevice = mutation({
       action = "created";
     }
 
+    // A phone added by hand under the old flow has the default phrase; if
+    // another of this user's phones already answers to it, move this one
+    // to a free phrase so one sentence never rings two phones. (Skipped
+    // when the user picked their own phrase.)
+    let phraseFix: { wakePhrase: string } | {} = {};
+    if (action !== "created" && !device.customWakePhrase) {
+      const others = devices.filter((d) => d._id !== device!._id);
+      const clash = others.some(
+        (d) => normalizePhrase(d.customWakePhrase || d.wakePhrase) === normalizePhrase(device!.wakePhrase),
+      );
+      if (clash) phraseFix = { wakePhrase: nextFreePhrase(others.map((d) => d.customWakePhrase || d.wakePhrase)) };
+    }
+
     await ctx.db.patch(device._id, {
+      ...phraseFix,
       physicalDeviceId: args.physicalDeviceId,
       lastSeenAt: Date.now(),
       // Don't clobber an active alarm/lock state on re-launch.

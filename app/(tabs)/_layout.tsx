@@ -1,6 +1,6 @@
 import { Tabs } from 'expo-router';
 import React, { useEffect, useRef } from 'react';
-import { Image, Text, AppState, Platform, NativeModules, PermissionsAndroid } from 'react-native';
+import { AppState, Platform, NativeModules, PermissionsAndroid } from 'react-native';
 import { useQuery, useMutation } from 'convex/react';
 import * as Location from 'expo-location';
 import * as Notifications from 'expo-notifications';
@@ -8,8 +8,10 @@ import { api } from '../../convex/_generated/api';
 import { AlarmWatcher } from '../../src/lib/AlarmWatcher';
 import { LockWatcher } from '../../src/lib/LockWatcher';
 import { getPhraseVariants } from '../../src/lib/deviceIcons';
-import { colors } from '../../src/lib/theme';
+import { colors, fonts } from '../../src/lib/theme';
+import { Icon } from '../../src/components/Icon';
 import { readDeviceSecret } from '../../src/lib/deviceIdentity';
+import { calibrateThreshold } from '../../convex/voiceMath';
 
 const { WakeWordModule } = NativeModules;
 
@@ -21,24 +23,14 @@ Notifications.setNotificationHandler({
   }),
 });
 
-function TabIcon({ emoji, focused, isInfinity }: { emoji: string; focused: boolean; isInfinity?: boolean }) {
-  if (isInfinity) {
-    return (
-      <Image
-        source={require('../../assets/images/infinity-logo.png')}
-        style={{
-          width: 30,
-          height: 15,
-          opacity: focused ? 1 : 0.5,
-          tintColor: focused ? colors.gold : colors.textMuted,
-        }}
-        resizeMode="contain"
-      />
-    );
-  }
-  return (
-    <Text style={{ fontSize: 22, opacity: focused ? 1 : 0.5 }}>{emoji}</Text>
-  );
+// Only a completed training counts. No training = no voiceprint = the
+// service ignores the wake phrase from everyone.
+function voiceConfigFor(e: any): { referenceVector?: number[]; matchThreshold?: number } {
+  if (!e?.isEnrolled || !e.referenceVector?.length) return {};
+  return {
+    referenceVector: e.referenceVector,
+    matchThreshold: e.matchThreshold ?? calibrateThreshold(e.sampleVectors ?? []),
+  };
 }
 
 function HeartbeatManager() {
@@ -132,7 +124,7 @@ function HeartbeatManager() {
       // Devices without enrollment yet fall back to phrase-match-only
       // behavior (referenceVector simply omitted).
       const myEnrollment = voiceEnrollments.find((e) => e.deviceId === myDevice._id);
-      const referenceVector = myEnrollment?.isEnrolled ? myEnrollment.referenceVector : undefined;
+      const { referenceVector, matchThreshold } = voiceConfigFor(myEnrollment);
 
       // The native service calls Convex directly (alarm trigger, lock
       // poll) and must authenticate with this install's secret.
@@ -145,11 +137,33 @@ function HeartbeatManager() {
         physicalDeviceId: physicalId,
         deviceSecret,
         referenceVector,
+        matchThreshold,
       }));
     })();
 
     return () => { cancelled = true; };
   }, [devices]);
+
+  // Retraining (or first training) must take effect right away: push the
+  // new voiceprint + threshold to the running service whenever they change.
+  const physicalIdForVoice = (globalThis as any).__myPhoneDeviceId;
+  const myVoiceDevice = devices.find((d) => d.physicalDeviceId === physicalIdForVoice);
+  const myVoiceEnrollment = myVoiceDevice
+    ? voiceEnrollments.find((e) => e.deviceId === myVoiceDevice._id)
+    : undefined;
+  const voiceKey = myVoiceEnrollment
+    ? `${myVoiceEnrollment.isEnrolled}:${myVoiceEnrollment.enrolledAt ?? 0}:${myVoiceEnrollment.matchThreshold ?? ''}`
+    : 'none';
+  const lastVoiceKey = useRef<string | null>(null);
+  useEffect(() => {
+    if (Platform.OS !== 'android' || !WakeWordModule?.updateVoiceConfig) return;
+    if (!myVoiceDevice) return;
+    if (lastVoiceKey.current === voiceKey) return;
+    const first = lastVoiceKey.current === null;
+    lastVoiceKey.current = voiceKey;
+    if (first) return; // startService already sent the initial config
+    WakeWordModule.updateVoiceConfig(JSON.stringify(voiceConfigFor(myVoiceEnrollment)));
+  }, [voiceKey, myVoiceDevice?._id]);
 
   // GPS location tracking — update this device's location in Convex
   useEffect(() => {
@@ -254,67 +268,32 @@ export default function TabsLayout() {
       <LockWatcher />
       <Tabs
         screenOptions={{
-          headerShown: true,
-          headerStyle: {
-            backgroundColor: colors.bgPrimary,
-            shadowColor: 'transparent',
-            elevation: 0,
-          },
-          headerTitleStyle: {
-            color: colors.gold,
-            fontWeight: '700',
-            fontSize: 18,
-          },
+          // Each screen draws its own big header (logo + title).
+          headerShown: false,
           tabBarStyle: {
-            backgroundColor: colors.bgCard,
+            backgroundColor: colors.bgTabBar,
             borderTopColor: colors.border,
             borderTopWidth: 1,
-            height: 85,
-            paddingBottom: 25,
-            paddingTop: 8,
+            height: 84,
+            paddingBottom: 22,
+            paddingTop: 10,
           },
           tabBarActiveTintColor: colors.gold,
           tabBarInactiveTintColor: colors.textMuted,
-          tabBarLabelStyle: {
-            fontSize: 11,
-            fontWeight: '600',
-          },
+          tabBarLabelStyle: { fontFamily: fonts.bold, fontSize: 12 },
         }}
       >
         <Tabs.Screen
           name="index"
-          options={{
-            title: 'Dashboard',
-            tabBarIcon: ({ focused }) => <TabIcon emoji="🏠" focused={focused} />,
-          }}
+          options={{ title: 'Find', tabBarIcon: ({ color }) => <Icon name="pin" color={color} /> }}
         />
         <Tabs.Screen
-          name="devices"
-          options={{
-            title: 'Devices',
-            tabBarIcon: ({ focused }) => <TabIcon emoji="📱" focused={focused} />,
-          }}
-        />
-        <Tabs.Screen
-          name="locate"
-          options={{
-            title: 'Locate',
-            tabBarIcon: ({ focused }) => <TabIcon emoji="∞" focused={focused} isInfinity />,
-          }}
-        />
-        <Tabs.Screen
-          name="map"
-          options={{
-            title: 'Map',
-            tabBarIcon: ({ focused }) => <TabIcon emoji="🗺️" focused={focused} />,
-          }}
+          name="this-phone"
+          options={{ title: 'This Phone', tabBarIcon: ({ color }) => <Icon name="shield" color={color} /> }}
         />
         <Tabs.Screen
           name="profile"
-          options={{
-            title: 'Profile',
-            tabBarIcon: ({ focused }) => <TabIcon emoji="👤" focused={focused} />,
-          }}
+          options={{ title: 'Settings', tabBarIcon: ({ color }) => <Icon name="settings" color={color} /> }}
         />
       </Tabs>
     </>
