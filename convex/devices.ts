@@ -2,7 +2,10 @@ import { getAuthUserId } from "@convex-dev/auth/server";
 import { mutation, query, action, internalAction, internalMutation, internalQuery } from "./_generated/server";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
-import { deleteDeviceSecrets, setDeviceSecret } from "./deviceAuth";
+import { deleteDeviceSecrets, setDeviceSecret, sha256Hex } from "./deviceAuth";
+import { secureUnlockConfigured } from "./unlock";
+import type { MutationCtx } from "./_generated/server";
+import type { Doc } from "./_generated/dataModel";
 
 // Default wake phrases per device type
 const DEFAULT_WAKE_PHRASES: Record<string, string> = {
@@ -45,6 +48,38 @@ const deviceValidator = v.object({
   expoPushToken: v.optional(v.string()),
   physicalDeviceId: v.optional(v.string()),
 });
+
+// Remote stop/unlock arrives from a signed-in session, which a thief holding
+// a stolen, signed-in phone also has. Once secure unlock is set up, these
+// must come from a DIFFERENT linked install of the same account — proven by
+// that install's own id + secret — never from the alarming phone itself.
+const callerProof = {
+  callerPhysicalDeviceId: v.optional(v.string()),
+  callerDeviceSecret: v.optional(v.string()),
+};
+
+async function assertRemoteCaller(
+  ctx: MutationCtx,
+  target: Doc<"devices">,
+  proof: { callerPhysicalDeviceId?: string; callerDeviceSecret?: string },
+): Promise<void> {
+  if (!(await secureUnlockConfigured(ctx, target.userId, target._id))) return;
+  const refuse = () => {
+    throw new Error(
+      "For security, stop or unlock this device from another phone signed into your account — or use fingerprint/PIN on the device itself.",
+    );
+  };
+  if (!proof.callerPhysicalDeviceId || !proof.callerDeviceSecret) refuse();
+  const secretHash = await sha256Hex(proof.callerDeviceSecret!);
+  const rows = await ctx.db
+    .query("deviceSecrets")
+    .withIndex("by_physicalDeviceId", (q) => q.eq("physicalDeviceId", proof.callerPhysicalDeviceId!))
+    .take(20);
+  const match = rows.find((r) => r.secretHash === secretHash);
+  if (!match) refuse();
+  const callerDevice = await ctx.db.get(match!.deviceId);
+  if (!callerDevice || callerDevice.userId !== target.userId || callerDevice._id === target._id) refuse();
+}
 
 // List all devices for the current user
 export const list = query({
@@ -317,13 +352,14 @@ export const sendAlarmPush = internalAction({
 
 // Stop alarm and unlock
 export const stopAlarm = mutation({
-  args: { deviceId: v.id("devices") },
+  args: { deviceId: v.id("devices"), ...callerProof },
   returns: v.null(),
   handler: async (ctx, args) => {
     const userId = await getAuthUserId(ctx);
     if (!userId) throw new Error("Not authenticated");
     const device = await ctx.db.get(args.deviceId);
     if (!device || device.userId !== userId) throw new Error("Device not found");
+    await assertRemoteCaller(ctx, device, args);
 
     await ctx.db.patch(args.deviceId, {
       isAlarmActive: false,
@@ -372,13 +408,14 @@ export const lockDevice = mutation({
 
 // Unlock a device
 export const unlockDevice = mutation({
-  args: { deviceId: v.id("devices") },
+  args: { deviceId: v.id("devices"), ...callerProof },
   returns: v.null(),
   handler: async (ctx, args) => {
     const userId = await getAuthUserId(ctx);
     if (!userId) throw new Error("Not authenticated");
     const device = await ctx.db.get(args.deviceId);
     if (!device || device.userId !== userId) throw new Error("Device not found");
+    await assertRemoteCaller(ctx, device, args);
 
     await ctx.db.patch(args.deviceId, {
       isLocked: false,

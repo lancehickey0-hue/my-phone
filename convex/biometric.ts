@@ -1,6 +1,7 @@
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
+import { secureUnlockConfigured } from "./unlock";
 
 // Get all biometric credentials for current user
 export const listCredentials = query({
@@ -96,7 +97,11 @@ export const removeCredential = mutation({
   },
 });
 
-// Biometric-verified unlock — after client-side WebAuthn verification succeeds
+// Legacy unlock that trusts the app's word that a biometric check passed.
+// Only allowed until secure unlock (hardware key or PIN) is set up — after
+// that, unlock goes through unlockNode.unlockWithSignature / unlockWithPin.
+// Kept so owners who haven't set up secure unlock are never trapped by a
+// siren they can't stop.
 export const biometricUnlock = mutation({
   args: { deviceId: v.id("devices") },
   returns: v.null(),
@@ -106,6 +111,9 @@ export const biometricUnlock = mutation({
 
     const device = await ctx.db.get(args.deviceId);
     if (!device || device.userId !== userId) throw new Error("Device not found");
+    if (await secureUnlockConfigured(ctx, userId, args.deviceId)) {
+      throw new Error("Use your fingerprint/face or My-Phone PIN to unlock");
+    }
 
     await ctx.db.patch(args.deviceId, {
       isAlarmActive: false,

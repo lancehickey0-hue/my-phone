@@ -140,6 +140,17 @@ function withWakeWordService(config) {
     return config;
   });
 
+  // ── 4b. AndroidX Biometric (DeviceKeyModule: hardware-backed unlock key) ──
+  config = withAppBuildGradle(config, (config) => {
+    if (!config.modResults.contents.includes('androidx.biometric:biometric')) {
+      config.modResults.contents = config.modResults.contents.replace(
+        'implementation("com.facebook.react:react-android")',
+        'implementation("com.facebook.react:react-android")\n    implementation("androidx.biometric:biometric:1.1.0")'
+      );
+    }
+    return config;
+  });
+
   // ── 5. Copy Kotlin files ───────────────────────────────────────────────────
   config = withDangerousMod(config, [
     'android',
@@ -159,6 +170,7 @@ function withWakeWordService(config) {
         'VoskSpeakerModelManager.kt',
         'VoskHandler.kt',
         'LockDeviceAdminReceiver.kt',
+        'DeviceKeyModule.kt',
       ]) {
         fs.copyFileSync(path.join(wakeDir, f), path.join(srcDir, f));
       }

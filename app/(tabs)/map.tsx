@@ -15,6 +15,7 @@ import { api } from '../../convex/_generated/api';
 import { deviceEmojis, type DeviceType } from '../../src/lib/deviceIcons';
 import { borderRadius, colors, spacing } from '../../src/lib/theme';
 import type { Id } from '../../convex/_generated/dataModel';
+import { getCallerProof } from '../../src/lib/deviceIdentity';
 
 type RemoteAction = 'alarm' | 'lock' | 'unlock' | 'stop_alarm';
 
@@ -219,12 +220,12 @@ export default function MapTab() {
     try {
       switch (action) {
         case 'alarm':     await triggerAlarm({ deviceId: selectedDeviceId }); break;
-        case 'stop_alarm': await stopAlarm({ deviceId: selectedDeviceId }); break;
+        case 'stop_alarm': await stopAlarm({ deviceId: selectedDeviceId, ...(await getCallerProof()) }); break;
         case 'lock':      await lockDevice({ deviceId: selectedDeviceId }); break;
-        case 'unlock':    await unlockDevice({ deviceId: selectedDeviceId }); break;
+        case 'unlock':    await unlockDevice({ deviceId: selectedDeviceId, ...(await getCallerProof()) }); break;
       }
-    } catch {
-      Alert.alert('Error', `Failed to ${action.replace('_', ' ')} device.`);
+    } catch (e: any) {
+      Alert.alert('Error', e?.data ?? e?.message ?? `Failed to ${action.replace('_', ' ')} device.`);
     } finally {
       setActionLoading(null);
     }

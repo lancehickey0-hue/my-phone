@@ -54,6 +54,36 @@ const schema = defineSchema({
     .index("by_physicalDeviceId", ["physicalDeviceId"])
     .index("by_deviceId", ["deviceId"]),
 
+  // Hardware-backed unlock key per device (Android Keystore, bound to the
+  // owner's strong biometric). Base64 SPKI public key; the private half
+  // never leaves the phone's secure hardware.
+  unlockKeys: defineTable({
+    deviceId: v.id("devices"),
+    userId: v.id("users"),
+    publicKey: v.string(),
+    createdAt: v.number(),
+  }).index("by_deviceId", ["deviceId"]),
+
+  // One-time challenges the device must sign to stop an alarm.
+  unlockChallenges: defineTable({
+    deviceId: v.id("devices"),
+    userId: v.id("users"),
+    challenge: v.string(), // base64, 32 random bytes
+    expiresAt: v.number(),
+  }).index("by_deviceId", ["deviceId"]),
+
+  // Account-wide My-Phone PIN (fallback when biometrics aren't usable).
+  // PBKDF2-SHA256; failedAttempts is charged BEFORE each check so parallel
+  // guesses can't slip past the lockout.
+  unlockPins: defineTable({
+    userId: v.id("users"),
+    salt: v.string(), // hex
+    hash: v.string(), // hex
+    iterations: v.number(),
+    failedAttempts: v.number(),
+    lockedUntil: v.optional(v.number()),
+  }).index("by_userId", ["userId"]),
+
   // User profiles with roles
   profiles: defineTable({
     userId: v.id("users"),
