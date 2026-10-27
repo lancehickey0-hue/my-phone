@@ -49,14 +49,42 @@ class WakeWordModule(private val reactContext: ReactApplicationContext) :
             // see voiceEnrollments.find(...) in (tabs)/_layout.tsx. Absent
             // means WakeWordService falls back to phrase-match-only
             // behavior, same as before speaker verification existed.
-            if (config.has("referenceVector")) {
-                editor.putString("reference_voiceprint_json", config.getJSONArray("referenceVector").toString())
-            }
+            writeVoiceConfig(editor, config)
             editor.apply()
         } catch (e: Exception) {
             e.printStackTrace()
         }
         startServiceInternal()
+    }
+
+    // Voiceprint + per-owner threshold. Absent referenceVector means "not
+    // trained": cleared, so the service won't respond to anyone.
+    private fun writeVoiceConfig(editor: android.content.SharedPreferences.Editor, config: org.json.JSONObject) {
+        if (config.has("referenceVector")) {
+            editor.putString("reference_voiceprint_json", config.getJSONArray("referenceVector").toString())
+        } else {
+            editor.remove("reference_voiceprint_json")
+        }
+        if (config.has("matchThreshold")) {
+            editor.putFloat("voice_match_threshold", config.getDouble("matchThreshold").toFloat())
+        } else {
+            editor.remove("voice_match_threshold")
+        }
+    }
+
+    // Applies a new/changed voice training immediately (no service restart).
+    @ReactMethod
+    fun updateVoiceConfig(configJson: String) {
+        try {
+            val config = org.json.JSONObject(configJson)
+            val prefs = reactContext.getSharedPreferences("myphone_prefs", android.content.Context.MODE_PRIVATE)
+            val editor = prefs.edit()
+            writeVoiceConfig(editor, config)
+            editor.apply()
+            WakeWordService.instance?.reloadVoiceprint()
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
     }
 
     // Used by lifecycle callbacks (onHostResume, model-download completion)
@@ -228,6 +256,39 @@ class WakeWordModule(private val reactContext: ReactApplicationContext) :
 
     private fun getAdminComponent(): ComponentName =
         ComponentName(reactContext, LockDeviceAdminReceiver::class.java)
+
+    // Battery optimization ("Doze"/app standby) is what lets Samsung, Xiaomi
+    // etc. kill the wake-word + tracking service after a while. Being on the
+    // exemption list keeps My-Phone running so a lost phone stays findable.
+    @ReactMethod
+    fun isIgnoringBatteryOptimizations(promise: Promise) {
+        try {
+            val pm = reactContext.getSystemService(android.content.Context.POWER_SERVICE) as android.os.PowerManager
+            promise.resolve(pm.isIgnoringBatteryOptimizations(reactContext.packageName))
+        } catch (e: Exception) {
+            promise.resolve(false)
+        }
+    }
+
+    // Shows the system "Let My-Phone always run in background?" dialog.
+    @ReactMethod
+    fun requestIgnoreBatteryOptimizations() {
+        try {
+            val intent = Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                data = android.net.Uri.parse("package:" + reactContext.packageName)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            reactContext.startActivity(intent)
+        } catch (e: Exception) {
+            // Some OEM builds don't offer the direct dialog; fall back to the list.
+            try {
+                val fallback = Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                reactContext.startActivity(fallback)
+            } catch (_: Exception) {}
+        }
+    }
 
     @ReactMethod
     fun isDeviceAdminActive(promise: Promise) {

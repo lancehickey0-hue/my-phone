@@ -22,7 +22,11 @@
         "NSLocationWhenInUseUsageDescription": "My-Phone needs location access to track your devices",
         "NSLocationAlwaysUsageDescription": "My-Phone needs background location to show your device on the map",
         "NSFaceIDUsageDescription": "My-Phone uses Face ID to verify your identity when unlocking devices",
-        "UIBackgroundModes": ["location", "audio", "fetch"]
+        "UIBackgroundModes": [
+          "location",
+          "audio",
+          "fetch"
+        ]
       }
     },
     "android": {
@@ -43,7 +47,8 @@
         "READ_PHONE_STATE",
         "FOREGROUND_SERVICE_LOCATION",
         "POST_NOTIFICATIONS",
-        "WAKE_LOCK"
+        "WAKE_LOCK",
+        "REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"
       ]
     },
     "web": {

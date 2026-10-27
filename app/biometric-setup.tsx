@@ -25,6 +25,9 @@ import { useRouter } from 'expo-router';
 import { useAction, useQuery } from 'convex/react';
 import { api } from '../convex/_generated/api';
 import { DeviceKey, type StrongBiometric } from '../src/native/DeviceKey';
+import { StepBar } from '../src/components/ui';
+import { Icon, type IconName } from '../src/components/Icon';
+import { colors, fonts } from '../src/lib/theme';
 
 type Step = 'loading' | 'pin' | 'biometric' | 'done';
 
@@ -103,15 +106,17 @@ export default function UnlockSetupScreen() {
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-      <Text style={styles.stepper}>
-        {step === 'done' ? 'All set' : `Step ${step === 'biometric' ? 2 : 1} of 2`}
-      </Text>
+      {step !== 'done' && step !== 'loading' && (
+        <View style={{ marginBottom: 28 }}>
+          <StepBar step={step === 'biometric' ? 2 : 1} total={2} />
+        </View>
+      )}
 
       {step === 'loading' && <ActivityIndicator color={gold} style={{ marginTop: 60 }} />}
 
       {showPinForm && (
         <>
-          <Text style={styles.emoji}>🔢</Text>
+          <IconBubble name="lock" />
           <Text style={styles.title}>{status?.hasPin ? 'Change your PIN' : 'Choose a PIN'}</Text>
           <Text style={styles.subtitle}>
             This stops the alarm if your fingerprint or face ever doesn't work. Pick 4 to 8 numbers you'll remember.
@@ -140,7 +145,7 @@ export default function UnlockSetupScreen() {
 
       {step === 'biometric' && !changingPin && (
         <>
-          <Text style={styles.emoji}>👆</Text>
+          <IconBubble name="fingerprint" />
           <Text style={styles.title}>Add your fingerprint</Text>
           {strong === 'available' ? (
             <>
@@ -168,7 +173,7 @@ export default function UnlockSetupScreen() {
 
       {step === 'done' && !changingPin && (
         <>
-          <Text style={styles.emoji}>✅</Text>
+          <IconBubble name="check" done />
           <Text style={styles.title}>You're protected</Text>
           <Text style={styles.subtitle}>
             {status?.hasKey
@@ -190,6 +195,14 @@ export default function UnlockSetupScreen() {
         </>
       )}
     </ScrollView>
+  );
+}
+
+function IconBubble({ name, done }: { name: IconName; done?: boolean }) {
+  return (
+    <View style={{ alignSelf: 'center', width: 96, height: 96, borderRadius: 48, marginBottom: 20, alignItems: 'center', justifyContent: 'center', backgroundColor: done ? colors.successDim : colors.goldDim }}>
+      <Icon name={name} size={44} color={done ? colors.successText : colors.gold} strokeWidth={done ? 2.6 : 1.8} />
+    </View>
   );
 }
 
@@ -232,8 +245,8 @@ function PrimaryButton({ label, onPress, disabled }: { label: string; onPress: (
   );
 }
 
-const gold = '#D4A843';
-const bgDark = '#06060A';
+const gold = colors.gold;
+const bgDark = colors.bgPrimary;
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: bgDark },
@@ -242,14 +255,14 @@ const styles = StyleSheet.create({
   stepper: { fontSize: 13, fontWeight: '700', color: 'rgba(255,255,255,0.45)', textAlign: 'center', letterSpacing: 1, textTransform: 'uppercase', marginBottom: 20 },
   emoji: { fontSize: 56, marginBottom: 16, textAlign: 'center' },
   field: { marginBottom: 14 },
-  fieldLabel: { fontSize: 14, fontWeight: '600', color: 'rgba(255,255,255,0.7)', marginBottom: 6 },
+  fieldLabel: { fontFamily: fonts.semibold, fontSize: 15, color: colors.textSecondary, marginBottom: 6 },
   pinInput: {
     backgroundColor: 'rgba(255,255,255,0.06)', borderRadius: 12, borderWidth: 1, borderColor: 'rgba(255,255,255,0.12)',
     color: '#fff', fontSize: 24, letterSpacing: 8, paddingVertical: 14, paddingHorizontal: 16, textAlign: 'center',
   },
-  title: { fontSize: 26, fontWeight: '800', color: gold, marginBottom: 8, textAlign: 'center' },
+  title: { fontFamily: fonts.extrabold, fontSize: 30, color: colors.textPrimary, marginBottom: 10, textAlign: 'center' },
   subtitle: {
-    fontSize: 16, color: 'rgba(255,255,255,0.7)', textAlign: 'center', lineHeight: 23, paddingHorizontal: 8, marginBottom: 28,
+    fontFamily: fonts.regular, fontSize: 17, color: colors.textSecondary, textAlign: 'center', lineHeight: 23, paddingHorizontal: 8, marginBottom: 28,
   },
 
   featureList: { marginBottom: 28 },
@@ -286,25 +299,25 @@ const styles = StyleSheet.create({
     borderRadius: 10, padding: 12, marginBottom: 16,
     borderWidth: 1, borderColor: 'rgba(220,50,50,0.2)',
   },
-  errorText: { fontSize: 13, color: '#f87171', textAlign: 'center' },
+  errorText: { fontFamily: fonts.semibold, fontSize: 15, color: colors.dangerText, textAlign: 'center' },
 
   loadingSection: { alignItems: 'center', padding: 40 },
   loadingText: { fontSize: 16, color: 'rgba(255,255,255,0.5)' },
 
   primaryButton: {
     backgroundColor: gold,
-    borderRadius: 14, paddingVertical: 16,
+    borderRadius: 20, paddingVertical: 20,
     alignItems: 'center', marginBottom: 12,
   },
-  primaryButtonText: { fontSize: 17, fontWeight: '700', color: bgDark },
+  primaryButtonText: { fontFamily: fonts.extrabold, fontSize: 18, color: colors.onGold },
 
   secondaryButton: {
     borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)',
     borderRadius: 14, paddingVertical: 14,
     alignItems: 'center', marginBottom: 12,
   },
-  secondaryButtonText: { fontSize: 15, fontWeight: '600', color: 'rgba(255,255,255,0.5)' },
+  secondaryButtonText: { fontFamily: fonts.bold, fontSize: 16, color: colors.textPrimary },
 
-  backLink: { alignItems: 'center', marginTop: 8, marginBottom: 24 },
-  backLinkText: { fontSize: 14, color: 'rgba(255,255,255,0.35)' },
+  backLink: { alignItems: 'center', justifyContent: 'center', minHeight: 48, marginTop: 4, marginBottom: 24 },
+  backLinkText: { fontFamily: fonts.semibold, fontSize: 16, color: colors.textMuted },
 });

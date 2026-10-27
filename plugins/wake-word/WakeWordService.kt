@@ -83,16 +83,38 @@ class WakeWordService : Service() {
         return if (denom == 0f) -1f else dot / denom
     }
 
-    // NOTE: this threshold is a starting estimate, not a validated value --
-    // it genuinely needs on-device tuning against real recordings (short
-    // wake-phrase utterances produce noisier x-vectors than the 4+ second
-    // clips Vosk's own docs recommend). Log every similarity score so real
-    // pass/fail data is visible in Log Deck for tuning.
-    private val VOICE_MATCH_THRESHOLD = 0.5f
+    // Per-owner match bar, calibrated at enrollment from how consistent the
+    // owner's own training samples were (convex/voiceMath.ts) and handed to
+    // the service by JS. The default only applies to enrollments made
+    // before calibration existed. Every score is logged to Log Deck.
+    private val DEFAULT_VOICE_MATCH_THRESHOLD = 0.6f
+    @Volatile private var voiceMatchThreshold = DEFAULT_VOICE_MATCH_THRESHOLD
 
-    // Absent (null) simply means this device hasn't completed voice
-    // enrollment yet -- wake-word detection falls back to phrase-match-only
-    // behavior, same as before speaker verification existed.
+    // Too little voiced speech gives an unreliable voiceprint: never trust it.
+    private val MIN_SPEAKER_FRAMES = 50
+    @Volatile private var lastVectorFrames = 0
+
+    private fun loadVoiceMatchThreshold(): Float {
+        return try {
+            val t = getSharedPreferences("myphone_prefs", MODE_PRIVATE)
+                .getFloat("voice_match_threshold", DEFAULT_VOICE_MATCH_THRESHOLD)
+            t.coerceIn(0.5f, 0.9f)
+        } catch (e: Exception) {
+            DEFAULT_VOICE_MATCH_THRESHOLD
+        }
+    }
+
+    // Called by WakeWordModule.updateVoiceConfig after (re)training so the
+    // new voiceprint applies immediately, without restarting the service.
+    fun reloadVoiceprint() {
+        referenceVoicePrint = loadReferenceVoicePrint()
+        voiceMatchThreshold = loadVoiceMatchThreshold()
+        log("Voiceprint reloaded (" + (if (referenceVoicePrint == null) "none" else "trained") + ", threshold=" + voiceMatchThreshold + ")")
+    }
+
+    // Absent (null) means this device hasn't completed voice training yet.
+    // An untrained phone does NOT respond to the wake phrase at all -- it
+    // must only ever ring for its owner's voice.
     private fun loadReferenceVoicePrint(): FloatArray? {
         return try {
             val prefs = getSharedPreferences("myphone_prefs", MODE_PRIVATE)
@@ -650,6 +672,7 @@ class WakeWordService : Service() {
                 log("Listening for phrases: " + phrases.joinToString(" | "))
 
                 referenceVoicePrint = loadReferenceVoicePrint()
+                voiceMatchThreshold = loadVoiceMatchThreshold()
                 val speakerModelReady = VoskSpeakerModelManager.isModelReady(this)
                 if (referenceVoicePrint != null && !speakerModelReady) {
                     log("Reference voiceprint present but speaker model not downloaded -- voice verification disabled this session", "warn")
@@ -663,26 +686,35 @@ class WakeWordService : Service() {
                     onWakeWordDetected = {
                         log("*** WAKE PHRASE DETECTED ***")
                         val ref = referenceVoicePrint
-                        if (ref == null) {
-                            log("No enrolled voiceprint -- triggering on phrase match alone")
-                            emitWakeWordDetected()
-                        } else if (lastVectorPassedVerification == true) {
-                            log("Voice verified -- triggering alarm")
-                            emitWakeWordDetected()
-                        } else {
-                            log("Phrase matched but voice did not match enrolled speaker -- ignoring", "warn")
-                        }
+                        val verified = lastVectorPassedVerification
+                        val frames = lastVectorFrames
                         lastVectorPassedVerification = null
+                        lastVectorFrames = 0
+                        when {
+                            ref == null ->
+                                log("Ignoring: voice not trained on this phone yet (only the owner's voice may trigger)", "warn")
+                            speakerModelPath == null ->
+                                log("Ignoring: speaker model not downloaded, can't verify the voice", "warn")
+                            frames < MIN_SPEAKER_FRAMES ->
+                                log("Ignoring: too little speech to verify (frames=" + frames + ")", "warn")
+                            verified == true -> {
+                                log("Owner's voice verified -- triggering alarm")
+                                emitWakeWordDetected()
+                            }
+                            else ->
+                                log("Phrase matched but it's not the owner's voice -- ignoring", "warn")
+                        }
                     },
                     onDebug = { heard -> log(heard) },
                     speakerModelPath = speakerModelPath,
                     onSpeakerVector = { vector, frames ->
                         val ref = referenceVoicePrint
+                        lastVectorFrames = frames
                         if (ref != null) {
                             val similarity = cosineSimilarity(vector, ref)
-                            val passed = similarity >= VOICE_MATCH_THRESHOLD
+                            val passed = similarity >= voiceMatchThreshold
                             lastVectorPassedVerification = passed
-                            log("Voice similarity: " + similarity + " (frames=" + frames + ", threshold=" + VOICE_MATCH_THRESHOLD + ") -> " + (if (passed) "MATCH" else "NO MATCH"))
+                            log("Voice similarity: " + similarity + " (frames=" + frames + ", threshold=" + voiceMatchThreshold + ") -> " + (if (passed) "MATCH" else "NO MATCH"))
                         }
                     }
                 )

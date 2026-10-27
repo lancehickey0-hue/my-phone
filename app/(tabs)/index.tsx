@@ -1,324 +1,313 @@
-import { useQuery } from 'convex/react';
+/**
+ * Find — the home screen.
+ *
+ * Pick a device (chips), see it on the map, and do the one thing you most
+ * likely came for: Ring it. Everything else (lock, directions) is one tap
+ * below. Replaces the old Dashboard, Devices, Locate and Map tabs, which
+ * all showed the same list with different buttons.
+ */
+import { useMutation, useQuery } from 'convex/react';
 import { useRouter } from 'expo-router';
-import React, { useEffect } from 'react';
-import { Alert, NativeModules,
-  Image,
-  Pressable,
-  RefreshControl,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
+import * as Location from 'expo-location';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Alert, Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { WebView } from 'react-native-webview';
 import { api } from '../../convex/_generated/api';
-import { deviceEmoji, type DeviceType } from '../../src/lib/deviceIcons';
-import { borderRadius, colors, fontSize, spacing } from '../../src/lib/theme';
+import type { Id } from '../../convex/_generated/dataModel';
+import { Icon } from '../../src/components/Icon';
+import { Card, PrimaryButton, ScreenHeader, SecondaryButton, StatusPill } from '../../src/components/ui';
+import { getCallerProof } from '../../src/lib/deviceIdentity';
+import { MAP_HTML } from '../../src/lib/mapHtml';
+import { colors, fonts } from '../../src/lib/theme';
 
-export default function DashboardTab() {
-  const devices = useQuery(api.devices.list) ?? [];
-  const profile = useQuery(api.profiles.current);
-  const activityLog = useQuery(api.profiles.getActivityLog) ?? [];
-  const enrollments = useQuery(api.voiceEnrollment.listEnrollments) ?? [];
+const ONLINE_WINDOW_MS = 5 * 60 * 1000;
+
+function timeAgo(ts?: number): string {
+  if (!ts) return 'never';
+  const s = Math.max(0, Math.round((Date.now() - ts) / 1000));
+  if (s < 60) return 'just now';
+  const m = Math.round(s / 60);
+  if (m < 60) return `${m} min ago`;
+  const h = Math.round(m / 60);
+  if (h < 24) return `${h} hr ago`;
+  return `${Math.round(h / 24)} days ago`;
+}
+
+function pinLabel(name: string): string {
+  const ch = (name.match(/[A-Za-z0-9]/)?.[0] ?? '?').toUpperCase();
+  return ch;
+}
+
+export default function FindScreen() {
   const router = useRouter();
+  const devices = useQuery(api.devices.list);
+  const triggerAlarm = useMutation(api.devices.triggerAlarm);
+  const stopAlarm = useMutation(api.devices.stopAlarm);
+  const lockDevice = useMutation(api.devices.lockDevice);
+  const unlockDevice = useMutation(api.devices.unlockDevice);
 
+  const physicalId = (globalThis as any).__myPhoneDeviceId as string | undefined;
+  const [selectedId, setSelectedId] = useState<Id<'devices'> | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [mapReady, setMapReady] = useState(false);
+  const webviewRef = useRef<WebView>(null);
+  const [, tick] = useState(0);
+
+  // Re-render every 30s so "2 min ago" stays true.
   useEffect(() => {
-    const { WakeWordModule } = NativeModules;
-    if (!WakeWordModule) return;
-    WakeWordModule.isModelReady().then((ready) => {
-      if (!ready) router.replace('/wake-word-setup');
-    }).catch(() => {});
+    const t = setInterval(() => tick((n) => n + 1), 30000);
+    return () => clearInterval(t);
   }, []);
 
+  // Default selection: anything ringing first, else a device that isn't
+  // the one in your hand (that's the one you'd be looking for).
+  useEffect(() => {
+    if (!devices?.length) return;
+    if (selectedId && devices.some((d) => d._id === selectedId)) return;
+    const pick =
+      devices.find((d) => d.isAlarmActive) ??
+      devices.find((d) => d.physicalDeviceId !== physicalId) ??
+      devices[0];
+    setSelectedId(pick._id);
+  }, [devices, selectedId, physicalId]);
 
-  const trainedCount = enrollments.filter((e) => e.isEnrolled).length;
+  const selected = devices?.find((d) => d._id === selectedId);
+  const isThisPhone = !!selected && !!physicalId && selected.physicalDeviceId === physicalId;
+  const hasLocation = selected?.lastLatitude != null && selected?.lastLongitude != null;
+  const online = !!selected?.lastSeenAt && Date.now() - selected.lastSeenAt < ONLINE_WINDOW_MS;
 
-  const stats = {
-    total: devices.length,
-    trained: trainedCount,
-    alarming: devices.filter((d) => d.isAlarmActive).length,
-    locked: devices.filter((d) => d.isLocked).length,
-  };
+  const sendToMap = useCallback((msg: object) => {
+    webviewRef.current?.injectJavaScript(`handleMessage(${JSON.stringify(JSON.stringify(msg))}); true;`);
+  }, []);
 
-  const recentActivity = activityLog.slice(0, 5);
-
-  // Build a map of deviceId -> enrollment for quick lookup
-  const enrollmentMap = new Map(
-    enrollments.map((e) => [e.deviceId, e])
+  const markers = useMemo(
+    () =>
+      (devices ?? [])
+        .filter((d) => d.lastLatitude != null && d.lastLongitude != null)
+        .map((d) => ({
+          id: d._id,
+          lat: d.lastLatitude,
+          lng: d.lastLongitude,
+          label: pinLabel(d.name),
+          alarm: d.isAlarmActive,
+          selected: d._id === selectedId,
+        })),
+    [devices, selectedId],
   );
 
-  function timeAgo(ts: number) {
-    const diff = Date.now() - ts;
-    const mins = Math.floor(diff / 60000);
-    if (mins < 1) return 'Just now';
-    if (mins < 60) return `${mins}m ago`;
-    const hrs = Math.floor(mins / 60);
-    if (hrs < 24) return `${hrs}h ago`;
-    return `${Math.floor(hrs / 24)}d ago`;
-  }
+  useEffect(() => {
+    if (mapReady) sendToMap({ type: 'updateMarkers', devices: markers });
+  }, [mapReady, markers, sendToMap]);
+
+  // Center on the selected device when it changes.
+  useEffect(() => {
+    if (mapReady && selected && hasLocation) {
+      sendToMap({ type: 'centerOn', lat: selected.lastLatitude, lng: selected.lastLongitude, zoom: 16 });
+    }
+  }, [mapReady, selectedId, hasLocation]);
+
+  // Blue dot for where you are.
+  useEffect(() => {
+    if (!mapReady) return;
+    (async () => {
+      try {
+        const { status } = await Location.getForegroundPermissionsAsync();
+        if (status !== 'granted') return;
+        const pos = await Location.getLastKnownPositionAsync();
+        if (pos) sendToMap({ type: 'setUserLocation', lat: pos.coords.latitude, lng: pos.coords.longitude });
+      } catch {}
+    })();
+  }, [mapReady, sendToMap]);
+
+  const run = async (key: string, fn: () => Promise<unknown>) => {
+    setBusy(key);
+    try {
+      await fn();
+    } catch (e: any) {
+      Alert.alert("That didn't work", e?.data ?? e?.message ?? 'Please try again.');
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const openDirections = () => {
+    if (!selected || !hasLocation) return;
+    const dest = `${selected.lastLatitude},${selected.lastLongitude}`;
+    Linking.openURL(`https://www.google.com/maps/dir/?api=1&destination=${dest}&travelmode=walking`);
+  };
 
   return (
-    <ScrollView
-      style={styles.container}
-      contentContainerStyle={styles.content}
-      refreshControl={<RefreshControl refreshing={false} onRefresh={() => {}} tintColor={colors.gold} />}
-    >
-      {/* Stats Row */}
-      <View style={styles.statsRow}>
-        {[
-          { label: 'Devices', value: stats.total, emoji: '📱' },
-          { label: 'Trained', value: stats.trained, emoji: '🟢' },
-          { label: 'Alarms', value: stats.alarming, emoji: '🔔', highlight: stats.alarming > 0 },
-          { label: 'Locked', value: stats.locked, emoji: '🔒' },
-        ].map((stat) => (
-          <View key={stat.label} style={[styles.statCard, stat.highlight && styles.statCardDanger]}>
-            <Text style={styles.statEmoji}>{stat.emoji}</Text>
-            <Text style={[styles.statValue, stat.highlight && styles.statValueDanger]}>
-              {stat.value}
-            </Text>
-            <Text style={styles.statLabel}>{stat.label}</Text>
-          </View>
-        ))}
-      </View>
-
-      {/* Voice Locator Card — branded logo */}
-      <Pressable
-        style={styles.voiceCard}
-        onPress={() => router.push('/locate')}
-      >
-        <View style={styles.voiceCardInner}>
-          <Image
-            source={require('../../assets/images/infinity-logo.png')}
-            style={styles.voiceLogoImage}
-            resizeMode="contain"
-          />
-          <View style={{ flex: 1 }}>
-            <Text style={styles.voiceTitle}>Voice Locator</Text>
-            <Text style={styles.voiceSubtitle}>
-              {trainedCount > 0
-                ? 'Per-device wake phrases active'
-                : 'Set up voice recognition →'}
-            </Text>
-          </View>
-          {trainedCount > 0 && (
-            <View style={styles.voiceActiveIndicator}>
-              <Text style={{ fontSize: 10, color: colors.success }}>●</Text>
-              <Text style={styles.voiceActiveText}>{trainedCount}/{devices.length}</Text>
-            </View>
-          )}
-        </View>
-      </Pressable>
-
-      {/* Device Cards */}
-      <View style={styles.sectionHeader}>
-        <Text style={styles.sectionTitle}>Your Devices</Text>
-        <Pressable onPress={() => router.push('/devices')}>
-          <Text style={styles.seeAllLink}>See All →</Text>
-        </Pressable>
-      </View>
-
-      {devices.length === 0 ? (
-        <View style={styles.emptyCard}>
-          <Text style={styles.emptyEmoji}>📱</Text>
-          <Text style={styles.emptyText}>No devices yet</Text>
-          <Pressable style={styles.addButton} onPress={() => router.push('/devices')}>
-            <Text style={styles.addButtonText}>+ Add Device</Text>
+    <View style={styles.container}>
+      <ScreenHeader
+        title="Find"
+        right={
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Add or manage devices"
+            onPress={() => router.push('/manage-devices')}
+            style={styles.roundBtn}
+          >
+            <Icon name="plus" size={20} />
           </Pressable>
+        }
+      />
+
+      {devices === undefined ? null : devices.length === 0 ? (
+        <View style={{ paddingHorizontal: 20 }}>
+          <Card>
+            <Text style={styles.cardTitle}>Setting up this phone…</Text>
+            <Text style={styles.muted}>It will show up here in a moment. Sign in on your other phones to see them here too.</Text>
+          </Card>
         </View>
       ) : (
-        <View style={styles.deviceGrid}>
-          {devices.slice(0, 4).map((device) => {
-            const enrollment = enrollmentMap.get(device._id);
-            const isTrained = enrollment?.isEnrolled ?? false;
-            const wakePhrase = device.customWakePhrase || device.wakePhrase;
-
-            return (
-              <Pressable
-                key={device._id}
-                style={[
-                  styles.deviceCard,
-                  device.isAlarmActive && styles.deviceCardAlarm,
-                  device.isLocked && styles.deviceCardLocked,
-                ]}
-                onPress={() => router.push({ pathname: '/voice-setup', params: { deviceId: device._id } })}
-              >
-                <View style={styles.deviceHeader}>
-                  <Text style={styles.deviceEmoji}>
-                    {deviceEmoji(device.type as DeviceType)}
-                  </Text>
-                  <View
-                    style={[
-                      styles.statusBadge,
-                      device.isAlarmActive
-                        ? styles.statusAlarm
-                        : device.status === 'connected'
-                          ? styles.statusConnected
-                          : styles.statusDisconnected,
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        styles.statusText,
-                        device.isAlarmActive
-                          ? styles.statusTextAlarm
-                          : device.status === 'connected'
-                            ? styles.statusTextConnected
-                            : styles.statusTextDisconnected,
-                      ]}
-                    >
-                      {device.isAlarmActive ? '🔔 ALARM' : device.status === 'connected' ? 'Online' : 'Offline'}
-                    </Text>
-                  </View>
-                </View>
-                <Text style={styles.deviceName} numberOfLines={1}>
-                  {device.name}
-                </Text>
-                {/* Per-device wake phrase status */}
-                {wakePhrase ? (
-                  <Text style={[styles.deviceWakePhrase, isTrained && styles.deviceWakePhraseTrained]} numberOfLines={1}>
-                    {isTrained ? '✓' : '○'} "{wakePhrase.replace(', where are you?', '').replace(/"/g, '')}"
-                  </Text>
-                ) : (
-                  <Text style={styles.deviceType}>{device.type}</Text>
-                )}
-              </Pressable>
-            );
-          })}
-        </View>
-      )}
-
-      {/* Recent Activity */}
-      {recentActivity.length > 0 && (
         <>
-          <Text style={[styles.sectionTitle, { marginTop: spacing.xxl }]}>Recent Activity</Text>
-          <View style={styles.activityList}>
-            {recentActivity.map((log) => (
-              <View key={log._id} style={styles.activityItem}>
-                <Text style={styles.activityText}>{log.details}</Text>
-                <Text style={styles.activityTime}>{timeAgo(log.timestamp)}</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}>
+            {devices.map((d) => {
+              const active = d._id === selectedId;
+              return (
+                <Pressable
+                  key={d._id}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: active }}
+                  onPress={() => setSelectedId(d._id)}
+                  style={[styles.chip, active && styles.chipActive, d.isAlarmActive && !active && styles.chipAlarm]}
+                >
+                  {d.isAlarmActive && <View style={styles.chipDot} />}
+                  <Text style={[styles.chipText, active && styles.chipTextActive]}>{d.name}</Text>
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+
+          <View style={styles.mapWrap}>
+            <WebView
+              ref={webviewRef}
+              source={{ html: MAP_HTML }}
+              style={styles.map}
+              onMessage={(e) => {
+                try {
+                  const msg = JSON.parse(e.nativeEvent.data);
+                  if (msg.type === 'ready') setMapReady(true);
+                  else if (msg.type === 'selectDevice') setSelectedId(msg.deviceId);
+                } catch {}
+              }}
+              originWhitelist={['*']}
+              javaScriptEnabled
+            />
+            {!hasLocation && selected && (
+              <View style={styles.mapOverlay} pointerEvents="none">
+                <Text style={styles.mapOverlayText}>No location for {selected.name} yet</Text>
               </View>
-            ))}
+            )}
           </View>
+
+          {selected && (
+            <View style={{ paddingHorizontal: 20, paddingTop: 16 }}>
+              {selected.isAlarmActive ? (
+                <Card style={styles.alarmCard}>
+                  <View style={styles.cardTop}>
+                    <View style={{ flex: 1, gap: 4 }}>
+                      <Text style={styles.cardTitle}>Ringing now</Text>
+                      <Text style={styles.muted}>{selected.name} is playing a loud alarm and is locked. Listen for it.</Text>
+                    </View>
+                    <StatusPill tone="alarm" label="Ringing" />
+                  </View>
+                  {isThisPhone ? (
+                    <Text style={styles.muted}>Use your fingerprint or PIN on the lock screen to stop it.</Text>
+                  ) : (
+                    <PrimaryButton
+                      tone="light"
+                      label="I found it — stop ringing"
+                      loading={busy === 'stop'}
+                      onPress={() => run('stop', async () => stopAlarm({ deviceId: selected._id, ...(await getCallerProof()) }))}
+                    />
+                  )}
+                  {hasLocation && !isThisPhone && <SecondaryButton icon="navigate" label="Get directions" onPress={openDirections} />}
+                </Card>
+              ) : (
+                <Card style={{ gap: 16 }}>
+                  <View style={styles.cardTop}>
+                    <View style={{ flex: 1, gap: 4 }}>
+                      <Text style={styles.cardTitle} numberOfLines={1}>{selected.name}</Text>
+                      <Text style={styles.muted} numberOfLines={2}>
+                        {isThisPhone
+                          ? 'The phone in your hand'
+                          : `${selected.lastLocationName || (hasLocation ? 'On the map' : 'Location not known yet')} · ${timeAgo(selected.lastSeenAt)}`}
+                      </Text>
+                    </View>
+                    <StatusPill tone={online ? 'online' : 'offline'} label={online ? 'Online' : 'Offline'} />
+                  </View>
+
+                  {isThisPhone ? (
+                    <Text style={styles.muted}>
+                      To find this phone, open My-Phone on another phone, or say "{(selected as any).customWakePhrase || selected.wakePhrase}" near it.
+                    </Text>
+                  ) : (
+                    <>
+                      <PrimaryButton
+                        icon="bell"
+                        label="Ring it"
+                        loading={busy === 'ring'}
+                        onPress={() => run('ring', () => triggerAlarm({ deviceId: selected._id }))}
+                      />
+                      <View style={styles.twoUp}>
+                        {selected.isLocked ? (
+                          <SecondaryButton
+                            icon="unlock"
+                            label="Unlock"
+                            loading={busy === 'lock'}
+                            style={{ flex: 1 }}
+                            onPress={() => run('lock', async () => unlockDevice({ deviceId: selected._id, ...(await getCallerProof()) }))}
+                          />
+                        ) : (
+                          <SecondaryButton
+                            icon="lock"
+                            label="Lock it"
+                            loading={busy === 'lock'}
+                            style={{ flex: 1 }}
+                            onPress={() => run('lock', () => lockDevice({ deviceId: selected._id }))}
+                          />
+                        )}
+                        <SecondaryButton
+                          icon="navigate"
+                          label="Directions"
+                          disabled={!hasLocation}
+                          style={{ flex: 1 }}
+                          onPress={openDirections}
+                        />
+                      </View>
+                    </>
+                  )}
+                </Card>
+              )}
+            </View>
+          )}
         </>
       )}
-
-      {/* Spacer for tab bar */}
-      <View style={{ height: 40 }} />
-    </ScrollView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bgPrimary },
-  content: { padding: spacing.lg },
+  roundBtn: { width: 48, height: 48, borderRadius: 24, borderWidth: 1, borderColor: colors.borderLight, backgroundColor: colors.bgCard, alignItems: 'center', justifyContent: 'center' },
 
-  // Stats
-  statsRow: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.lg },
-  statCard: {
-    flex: 1,
-    backgroundColor: colors.bgCard,
-    borderRadius: borderRadius.md,
-    padding: spacing.md,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  statCardDanger: { borderColor: colors.danger + '40' },
-  statEmoji: { fontSize: 18, marginBottom: spacing.xs },
-  statValue: { fontSize: fontSize.xl, fontWeight: '800', color: colors.textPrimary },
-  statValueDanger: { color: colors.danger },
-  statLabel: { fontSize: fontSize.xs, color: colors.textMuted, marginTop: 2 },
+  chips: { paddingHorizontal: 20, paddingBottom: 14, gap: 8 },
+  chip: { height: 44, paddingHorizontal: 16, borderRadius: 22, borderWidth: 1, borderColor: colors.borderLight, flexDirection: 'row', alignItems: 'center', gap: 6 },
+  chipActive: { backgroundColor: colors.textPrimary, borderColor: colors.textPrimary },
+  chipAlarm: { borderColor: colors.danger },
+  chipDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.danger },
+  chipText: { fontFamily: fonts.semibold, fontSize: 15, color: colors.textSecondary },
+  chipTextActive: { fontFamily: fonts.bold, color: colors.bgPrimary },
 
-  // Voice Locator
-  voiceCard: {
-    backgroundColor: colors.bgCard,
-    borderRadius: borderRadius.lg,
-    borderWidth: 1,
-    borderColor: colors.goldBorder,
-    marginBottom: spacing.lg,
-    overflow: 'hidden',
-  },
-  voiceCardInner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: spacing.lg,
-    gap: spacing.md,
-  },
-  voiceLogoImage: { width: 36, height: 18 },
-  voiceTitle: { fontSize: fontSize.md, fontWeight: '700', color: colors.gold },
-  voiceSubtitle: { fontSize: fontSize.sm, color: colors.textSecondary, marginTop: 2 },
-  voiceActiveIndicator: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  voiceActiveText: { fontSize: fontSize.xs, color: colors.success },
+  mapWrap: { marginHorizontal: 20, flex: 1, minHeight: 220, borderRadius: 24, overflow: 'hidden', borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)', backgroundColor: '#12161C' },
+  map: { flex: 1, backgroundColor: '#12161C' },
+  mapOverlay: { position: 'absolute', left: 0, right: 0, bottom: 12, alignItems: 'center' },
+  mapOverlayText: { fontFamily: fonts.semibold, fontSize: 14, color: colors.textSecondary, backgroundColor: 'rgba(10,10,14,0.85)', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 14, overflow: 'hidden' },
 
-  // Section
-  sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.md },
-  sectionTitle: { fontSize: fontSize.lg, fontWeight: '700', color: colors.gold },
-  seeAllLink: { fontSize: fontSize.sm, color: colors.gold },
-
-  // Empty
-  emptyCard: {
-    backgroundColor: colors.bgCard,
-    borderRadius: borderRadius.lg,
-    padding: spacing.xxxl,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  emptyEmoji: { fontSize: 40, marginBottom: spacing.md },
-  emptyText: { fontSize: fontSize.md, color: colors.textMuted, marginBottom: spacing.lg },
-  addButton: {
-    backgroundColor: colors.goldDim,
-    borderRadius: borderRadius.sm,
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.sm,
-    borderWidth: 1,
-    borderColor: colors.goldBorder,
-  },
-  addButtonText: { color: colors.gold, fontWeight: '600', fontSize: fontSize.sm },
-
-  // Device Grid
-  deviceGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
-  deviceCard: {
-    width: '48.5%',
-    backgroundColor: colors.bgCard,
-    borderRadius: borderRadius.md,
-    padding: spacing.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  deviceCardAlarm: { borderColor: colors.danger + '60', backgroundColor: colors.dangerDim },
-  deviceCardLocked: { borderColor: colors.warning + '40' },
-  deviceHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.sm },
-  deviceEmoji: { fontSize: 24 },
-  statusBadge: { borderRadius: borderRadius.full, paddingHorizontal: 8, paddingVertical: 2 },
-  statusConnected: { backgroundColor: colors.successDim },
-  statusDisconnected: { backgroundColor: 'rgba(255,255,255,0.05)' },
-  statusAlarm: { backgroundColor: colors.dangerDim },
-  statusText: { fontSize: fontSize.xs, fontWeight: '600' },
-  statusTextConnected: { color: colors.success },
-  statusTextDisconnected: { color: colors.textMuted },
-  statusTextAlarm: { color: colors.danger },
-  deviceName: { fontSize: fontSize.md, fontWeight: '600', color: colors.textPrimary },
-  deviceType: { fontSize: fontSize.xs, color: colors.textMuted, textTransform: 'capitalize', marginTop: 2 },
-  deviceWakePhrase: { fontSize: 11, color: colors.textMuted, marginTop: 3 },
-  deviceWakePhraseTrained: { color: colors.gold },
-  deviceLastSeen: { fontSize: fontSize.xs, color: colors.textMuted, marginTop: spacing.xs },
-
-  // Activity
-  activityList: {
-    backgroundColor: colors.bgCard,
-    borderRadius: borderRadius.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    marginTop: spacing.sm,
-  },
-  activityItem: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: spacing.md,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-  },
-  activityText: { fontSize: fontSize.sm, color: colors.textSecondary, flex: 1 },
-  activityTime: { fontSize: fontSize.xs, color: colors.textMuted, marginLeft: spacing.sm },
+  cardTop: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
+  cardTitle: { fontFamily: fonts.extrabold, fontSize: 22, color: colors.textPrimary },
+  muted: { fontFamily: fonts.regular, fontSize: 15, lineHeight: 21, color: colors.textMuted },
+  twoUp: { flexDirection: 'row', gap: 10 },
+  alarmCard: { gap: 16, borderWidth: 2, borderColor: colors.danger, paddingBottom: 20 },
 });

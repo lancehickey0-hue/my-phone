@@ -10,6 +10,14 @@ import { Platform, NativeModules, NativeEventEmitter } from 'react-native';
 import * as Notifications from 'expo-notifications';
 import { api } from '../convex/_generated/api';
 import { colors } from '../src/lib/theme';
+import {
+  useFonts,
+  PlusJakartaSans_400Regular,
+  PlusJakartaSans_500Medium,
+  PlusJakartaSans_600SemiBold,
+  PlusJakartaSans_700Bold,
+  PlusJakartaSans_800ExtraBold,
+} from '@expo-google-fonts/plus-jakarta-sans';
 import { getAlarmManager } from '../src/native/AlarmManager';
 import * as Location from 'expo-location';
 import { startBackgroundLocationTracking } from '../src/lib/BackgroundLocation';
@@ -270,6 +278,17 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
 }
 
 export default function RootLayout() {
+  const [fontsLoaded, fontError] = useFonts({
+    PlusJakartaSans_400Regular,
+    PlusJakartaSans_500Medium,
+    PlusJakartaSans_600SemiBold,
+    PlusJakartaSans_700Bold,
+    PlusJakartaSans_800ExtraBold,
+  });
+  // Fonts are bundled, so this is a few frames at most. On error, carry on
+  // with the system font rather than blocking the app.
+  if (!fontsLoaded && !fontError) return null;
+
   return (
     <ConvexAuthProvider client={convex} storage={nativeStorage}>
       <StatusBar style="light" />
@@ -294,6 +313,7 @@ export default function RootLayout() {
           <Stack.Screen name="biometric-setup" options={{ headerShown: false, presentation: 'modal' }} />
           <Stack.Screen name="manage-users" options={{ headerShown: false, presentation: 'modal' }} />
           <Stack.Screen name="activity-log" options={{ headerShown: false, presentation: 'modal' }} />
+          <Stack.Screen name="manage-devices" options={{ headerShown: false }} />
         </Stack>
       </AuthGuard>
     </ConvexAuthProvider>

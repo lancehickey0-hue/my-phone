@@ -1,15 +1,12 @@
 /**
- * Lockout Screen — Shown when a device alarm is triggered
+ * Lockout — shown on the phone that's alarming.
  *
- * Flow:
- *   1. WakeWordEngine detects wake phrase → AlarmManager triggers alarm
- *   2. This screen takes over (full screen, no navigation escape)
- *   3. Lance's gold infinity animation plays on loop
- *   4. User taps screen → animation pauses → biometric panel slides up
- *   5. Fingerprint/face signs a one-time server challenge with the phone's
- *      hardware key (or the owner enters their My-Phone PIN) → server
- *      verifies → alarm off → navigate away
- *   6. Cancel → panel hides → animation resumes (still locked)
+ *   • Your infinity animation, "This phone is locked", and the owner's
+ *     "Found this phone?" message for an honest finder.
+ *   • One big button: the owner's fingerprint/face signs a one-time server
+ *     challenge with the phone's hardware key (or "Use my PIN instead").
+ *     The server verifies → alarm off → back to the app.
+ *   • No escape: back button and swipe-to-dismiss are disabled.
  */
 
 import { useEffect, useRef, useState } from 'react';
@@ -17,15 +14,11 @@ import {
   View,
   Text,
   StyleSheet,
-  TouchableWithoutFeedback,
-  TouchableOpacity,
-  Animated,
-  Dimensions,
   StatusBar,
-  Platform,
-  Alert,
   BackHandler,
   TextInput,
+  Pressable,
+  ScrollView,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useAction, useMutation, useQuery } from 'convex/react';
@@ -34,11 +27,11 @@ import { api } from '../convex/_generated/api';
 import { BiometricAuth, type BiometricType } from '../src/native/BiometricAuth';
 import { getAlarmManager } from '../src/native/AlarmManager';
 import { DeviceKey, SignError } from '../src/native/DeviceKey';
+import { Icon } from '../src/components/Icon';
+import { PrimaryButton, TextButton } from '../src/components/ui';
+import { colors, fonts } from '../src/lib/theme';
 import type { Id } from '../convex/_generated/dataModel';
 
-const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
-const gold = '#D4A843';
-const bgDark = '#06060A';
 
 export default function LockoutScreen() {
   const router = useRouter();
@@ -54,12 +47,8 @@ export default function LockoutScreen() {
   const unlockWithSignature = useAction(api.unlockNode.unlockWithSignature);
   const unlockWithPin = useAction(api.unlockNode.unlockWithPin);
 
-  // Animations
-  const pulseAnim = useRef(new Animated.Value(0.4)).current;
-  const slideAnim = useRef(new Animated.Value(0)).current;
 
   // State
-  const [showBiometric, setShowBiometric] = useState(false);
   const [isAuthenticating, setIsAuthenticating] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
 
@@ -71,6 +60,7 @@ export default function LockoutScreen() {
   const deviceId = (params.deviceId || myDevice?._id) as Id<'devices'> | undefined;
   const deviceName = params.deviceName || myDevice?.name || 'This Device';
   const unlockStatus = useQuery(api.unlock.status, deviceId ? { deviceId } : 'skip');
+  const profile = useQuery(api.profiles.current);
   const [showPin, setShowPin] = useState(false);
   const [pin, setPin] = useState('');
 
@@ -89,36 +79,6 @@ export default function LockoutScreen() {
     const sub = BackHandler.addEventListener('hardwareBackPress', () => true);
     return () => sub.remove();
   }, []);
-
-  // Pulse "Touch to unlock" text
-  useEffect(() => {
-    const pulse = Animated.loop(
-      Animated.sequence([
-        Animated.timing(pulseAnim, { toValue: 1, duration: 1500, useNativeDriver: true }),
-        Animated.timing(pulseAnim, { toValue: 0.4, duration: 1500, useNativeDriver: true }),
-      ])
-    );
-    pulse.start();
-    return () => pulse.stop();
-  }, []);
-
-  // Handle screen tap → show biometric panel
-  const handleScreenTap = () => {
-    if (showBiometric) return;
-
-    // Pause the infinity animation
-    videoRef.current?.pauseAsync();
-
-    // Slide up biometric panel
-    setShowBiometric(true);
-    setAuthError(null);
-    Animated.spring(slideAnim, {
-      toValue: 1,
-      useNativeDriver: true,
-      tension: 50,
-      friction: 9,
-    }).start();
-  };
 
   const finishUnlock = () => {
     if (deviceId) getAlarmManager().deactivateAlarm(deviceId, 'biometric');
@@ -199,260 +159,109 @@ export default function LockoutScreen() {
     setIsAuthenticating(false);
   };
 
-  // Handle cancel → hide panel, resume animation
-  const handleCancel = () => {
-    Animated.timing(slideAnim, {
-      toValue: 0,
-      duration: 250,
-      useNativeDriver: true,
-    }).start(() => {
-      setShowBiometric(false);
-      setAuthError(null);
-      // Resume infinity animation
-      videoRef.current?.playAsync();
-    });
-  };
-
   return (
     <View style={styles.container}>
       <StatusBar hidden />
+      <View style={styles.alarmStripe} />
 
-      {/* Full-screen looping infinity animation */}
-      <Video
-        ref={videoRef}
-        source={require('../assets/video/infinity-lockout.mp4')}
-        style={styles.video}
-        resizeMode={ResizeMode.CONTAIN}
-        shouldPlay
-        isLooping
-        isMuted
-      />
-
-      {/* Dark overlay */}
-      <View style={[styles.overlay, showBiometric && styles.overlayDim]} />
-
-      {/* Touch area (entire screen) */}
-      <TouchableWithoutFeedback onPress={handleScreenTap}>
-        <View style={styles.touchArea}>
-          {/* Top: Lock status */}
-          <View style={styles.topSection}>
-            <Text style={styles.lockIcon}>🔒</Text>
-            <Text style={styles.lockTitle}>Device Locked</Text>
-            <Text style={styles.lockSubtitle}>
-              {deviceName} has been locked by My-Phone
-            </Text>
+      <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled" bounces={false}>
+        {/* Your infinity animation, with a lock badge */}
+        <View style={styles.hero}>
+          <Video
+            ref={videoRef}
+            source={require('../assets/video/infinity-lockout.mp4')}
+            style={styles.video}
+            resizeMode={ResizeMode.CONTAIN}
+            shouldPlay
+            isLooping
+            isMuted
+          />
+          <View style={styles.lockBadge}>
+            <Icon name="lock" size={20} color={colors.onGold} strokeWidth={2.4} />
           </View>
-
-          {/* Bottom: Touch to unlock (hidden when biometric panel is up) */}
-          {!showBiometric && (
-            <Animated.View style={[styles.bottomSection, { opacity: pulseAnim }]}>
-              <Text style={styles.touchText}>TOUCH TO UNLOCK</Text>
-              <View style={styles.touchLine} />
-            </Animated.View>
-          )}
         </View>
-      </TouchableWithoutFeedback>
 
-      {/* Biometric unlock panel (slides up from bottom) */}
-      {showBiometric && (
-        <Animated.View
-          style={[
-            styles.biometricPanel,
-            {
-              transform: [{
-                translateY: slideAnim.interpolate({
-                  inputRange: [0, 1],
-                  outputRange: [400, 0],
-                }),
-              }],
-            },
-          ]}
-        >
-          {/* Drag handle */}
-          <View style={styles.handle} />
+        <Text style={styles.title} accessibilityRole="header">This phone is locked</Text>
+        <Text style={styles.subtitle}>The owner set off its alarm. Only they can stop it.</Text>
 
-          <Text style={styles.biometricIcon}>🔐</Text>
-          <Text style={styles.biometricTitle}>Verify Identity</Text>
-          <Text style={styles.biometricSubtitle}>
-            Use {biometricLabel} to unlock{'\n'}{deviceName}
-          </Text>
+        {profile?.finderMessage ? (
+          <View style={styles.finderBox}>
+            <Text style={styles.finderLabel}>Found this phone?</Text>
+            <Text style={styles.finderText}>{profile.finderMessage}</Text>
+          </View>
+        ) : null}
 
-          {/* Error message */}
-          {authError && (
-            <View style={styles.errorBanner}>
-              <Text style={styles.errorText}>⚠️ {authError}</Text>
-            </View>
-          )}
+        <View style={{ flex: 1, minHeight: 24 }} />
 
-          {showPin ? (
-            <>
-              <TextInput
-                style={styles.pinInput}
-                value={pin}
-                onChangeText={(t) => setPin(t.replace(/\D/g, ''))}
-                keyboardType="number-pad"
-                secureTextEntry
-                maxLength={8}
-                autoFocus
-                placeholder="My-Phone PIN"
-                placeholderTextColor="rgba(255,255,255,0.3)"
-                onSubmitEditing={handlePinUnlock}
-              />
-              <TouchableOpacity
-                style={[styles.unlockButton, isAuthenticating && styles.unlockButtonDisabled]}
-                onPress={handlePinUnlock}
-                disabled={isAuthenticating}
-                activeOpacity={0.8}
-              >
-                <Text style={styles.unlockButtonText}>{isAuthenticating ? '⏳ Checking...' : 'Unlock with PIN'}</Text>
-              </TouchableOpacity>
-              {unlockStatus?.hasKey && (
-                <TouchableOpacity style={styles.cancelButton} onPress={() => { setShowPin(false); setAuthError(null); }}>
-                  <Text style={styles.cancelButtonText}>Use fingerprint instead</Text>
-                </TouchableOpacity>
-              )}
-            </>
-          ) : (
-            <>
-              <TouchableOpacity
-                style={[styles.unlockButton, isAuthenticating && styles.unlockButtonDisabled]}
-                onPress={handleBiometricAuth}
-                disabled={isAuthenticating}
-                activeOpacity={0.8}
-              >
-                <Text style={styles.unlockButtonText}>
-                  {isAuthenticating ? '⏳ Verifying...' : `🔐  Unlock with ${biometricLabel}`}
-                </Text>
-              </TouchableOpacity>
-              {unlockStatus?.hasPin && (
-                <TouchableOpacity style={styles.cancelButton} onPress={() => { setShowPin(true); setAuthError(null); }}>
-                  <Text style={styles.cancelButtonText}>Use PIN instead</Text>
-                </TouchableOpacity>
-              )}
-            </>
-          )}
+        {authError && (
+          <View style={styles.errorBanner} accessibilityLiveRegion="polite">
+            <Text style={styles.errorText}>{authError}</Text>
+          </View>
+        )}
 
-          {/* Cancel */}
-          <TouchableOpacity
-            style={styles.cancelButton}
-            onPress={handleCancel}
-            disabled={isAuthenticating}
-            activeOpacity={0.7}
-          >
-            <Text style={styles.cancelButtonText}>Cancel</Text>
-          </TouchableOpacity>
-
-          <Text style={styles.ownerNote}>
-            Only the registered owner can unlock this device
-          </Text>
-        </Animated.View>
-      )}
+        {showPin ? (
+          <View style={{ gap: 12 }}>
+            <TextInput
+              style={styles.pinInput}
+              value={pin}
+              onChangeText={(t) => setPin(t.replace(/\D/g, ''))}
+              keyboardType="number-pad"
+              secureTextEntry
+              maxLength={8}
+              autoFocus
+              placeholder="My-Phone PIN"
+              placeholderTextColor={colors.textMuted}
+              onSubmitEditing={handlePinUnlock}
+              accessibilityLabel="My-Phone PIN"
+            />
+            <PrimaryButton label="Unlock with PIN" loading={isAuthenticating} onPress={handlePinUnlock} />
+            {unlockStatus?.hasKey && (
+              <TextButton label="Use fingerprint instead" onPress={() => { setShowPin(false); setAuthError(null); }} />
+            )}
+          </View>
+        ) : (
+          <View style={{ gap: 8 }}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`Owner: unlock with ${biometricLabel}`}
+              onPress={handleBiometricAuth}
+              disabled={isAuthenticating}
+              style={({ pressed }) => [styles.bigUnlock, (pressed || isAuthenticating) && { opacity: 0.85 }]}
+            >
+              <Icon name="fingerprint" size={44} color={colors.onGold} strokeWidth={1.8} />
+              <Text style={styles.bigUnlockText}>{isAuthenticating ? 'Checking…' : 'Owner: touch to unlock'}</Text>
+            </Pressable>
+            {unlockStatus?.hasPin && (
+              <TextButton label="Use my PIN instead" onPress={() => { setShowPin(true); setAuthError(null); }} />
+            )}
+          </View>
+        )}
+      </ScrollView>
     </View>
   );
 }
 
- const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: bgDark },
-
-  video: {
-    position: 'absolute',
-    top: 0, left: 0,
-    width: SCREEN_W,
-    height: SCREEN_H,
+const styles = StyleSheet.create({
+  container: { flex: 1, backgroundColor: colors.bgPrimary },
+  alarmStripe: { height: 6, backgroundColor: colors.danger },
+  scroll: { flexGrow: 1, paddingHorizontal: 20, paddingTop: 40, paddingBottom: 40 },
+  hero: { alignSelf: 'center', width: 260, height: 150, marginBottom: 18 },
+  video: { width: 260, height: 150 },
+  lockBadge: {
+    position: 'absolute', right: 4, bottom: -4, width: 48, height: 48, borderRadius: 24,
+    backgroundColor: colors.danger, borderWidth: 4, borderColor: colors.bgPrimary, alignItems: 'center', justifyContent: 'center',
   },
-
-  overlay: {
-    position: 'absolute',
-    top: 0, left: 0,
-    width: SCREEN_W,
-    height: SCREEN_H,
-    backgroundColor: 'rgba(0, 0, 0, 0.25)',
-  },
-  overlayDim: {
-    backgroundColor: 'rgba(0, 0, 0, 0.6)',
-  },
-
-  touchArea: {
-    flex: 1,
-    justifyContent: 'space-between',
-    paddingTop: 80,
-    paddingBottom: 55,
-    paddingHorizontal: 32,
-  },
-
-  topSection: { alignItems: 'center' },
-  lockIcon: { fontSize: 40, marginBottom: 12 },
-  lockTitle: { fontSize: 28, fontWeight: '800', color: gold, marginBottom: 6 },
-  lockSubtitle: { fontSize: 14, color: 'rgba(255,255,255,0.55)', textAlign: 'center' },
-
-  bottomSection: { alignItems: 'center' },
-  touchText: {
-    fontSize: 15, fontWeight: '500',
-    color: 'rgba(255,255,255,0.65)',
-    letterSpacing: 2, marginBottom: 10,
-  },
-  touchLine: {
-    width: 90, height: 3, borderRadius: 2,
-    backgroundColor: 'rgba(255,255,255,0.2)',
-  },
-
-  // Biometric panel
-  biometricPanel: {
-    position: 'absolute',
-    bottom: 0, left: 0, right: 0,
-    backgroundColor: '#0D0D12',
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    borderTopWidth: 1,
-    borderColor: 'rgba(212, 168, 67, 0.2)',
-    paddingTop: 12,
-    paddingBottom: Platform.OS === 'ios' ? 44 : 32,
-    paddingHorizontal: 32,
-    alignItems: 'center',
-  },
-
-  handle: {
-    width: 40, height: 4, borderRadius: 2,
-    backgroundColor: 'rgba(255,255,255,0.15)',
-    marginBottom: 22,
-  },
-
-  biometricIcon: { fontSize: 52, marginBottom: 14 },
-  biometricTitle: { fontSize: 22, fontWeight: '800', color: gold, marginBottom: 6 },
-  biometricSubtitle: {
-    fontSize: 14, color: 'rgba(255,255,255,0.5)',
-    textAlign: 'center', marginBottom: 24, lineHeight: 20,
-  },
-
-  errorBanner: {
-    width: '100%',
-    backgroundColor: 'rgba(220, 50, 50, 0.15)',
-    borderRadius: 10, padding: 12, marginBottom: 16,
-    borderWidth: 1, borderColor: 'rgba(220, 50, 50, 0.3)',
-  },
-  errorText: { fontSize: 13, color: '#f87171', textAlign: 'center' },
-
-  unlockButton: {
-    width: '100%',
-    backgroundColor: gold,
-    borderRadius: 14, paddingVertical: 16,
-    alignItems: 'center', marginBottom: 14,
-  },
-  unlockButtonDisabled: { opacity: 0.6 },
+  title: { fontFamily: fonts.extrabold, fontSize: 32, lineHeight: 38, color: colors.textPrimary, textAlign: 'center', letterSpacing: -0.5 },
+  subtitle: { fontFamily: fonts.regular, fontSize: 17, lineHeight: 25, color: colors.textSecondary, textAlign: 'center', marginTop: 10 },
+  finderBox: { marginTop: 24, borderRadius: 20, backgroundColor: colors.bgCard, borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)', padding: 18, gap: 6 },
+  finderLabel: { fontFamily: fonts.bold, fontSize: 13, color: colors.textMuted, textTransform: 'uppercase', letterSpacing: 1 },
+  finderText: { fontFamily: fonts.semibold, fontSize: 17, lineHeight: 24, color: colors.textPrimary },
+  errorBanner: { backgroundColor: colors.dangerDim, borderRadius: 14, padding: 14, marginBottom: 12 },
+  errorText: { fontFamily: fonts.semibold, fontSize: 15, lineHeight: 21, color: colors.dangerText, textAlign: 'center' },
+  bigUnlock: { height: 120, borderRadius: 28, backgroundColor: colors.gold, alignItems: 'center', justifyContent: 'center', gap: 8 },
+  bigUnlockText: { fontFamily: fonts.extrabold, fontSize: 20, color: colors.onGold },
   pinInput: {
-    width: '100%', backgroundColor: 'rgba(255,255,255,0.06)', borderRadius: 12,
-    borderWidth: 1, borderColor: 'rgba(212,168,67,0.35)', color: '#fff', fontSize: 22,
-    letterSpacing: 6, paddingVertical: 14, textAlign: 'center', marginBottom: 14,
+    height: 64, borderRadius: 18, borderWidth: 1, borderColor: colors.goldBorder, backgroundColor: colors.bgElevated,
+    color: colors.textPrimary, fontFamily: fonts.bold, fontSize: 26, letterSpacing: 8, textAlign: 'center',
   },
-  unlockButtonText: { fontSize: 16, fontWeight: '700', color: bgDark },
-
-  cancelButton: {
-    width: '100%',
-    borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)',
-    borderRadius: 14, paddingVertical: 13,
-    alignItems: 'center', marginBottom: 14,
-  },
-  cancelButtonText: { fontSize: 14, fontWeight: '600', color: 'rgba(255,255,255,0.4)' },
-
-  ownerNote: { fontSize: 11, color: 'rgba(255,255,255,0.3)', textAlign: 'center' },
 });

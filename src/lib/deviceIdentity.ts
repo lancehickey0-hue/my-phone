@@ -67,8 +67,21 @@ export async function readDeviceSecret(): Promise<string> {
   return (await SecureStore.getItemAsync(DEVICE_SECRET_KEY)) ?? '';
 }
 
+// Name a newly linked phone after its model so two phones on one account
+// are easy to tell apart ("Pixel 8", "Samsung phone"). The server adds
+// " 2", " 3"… if the name is already taken on the account.
 export function defaultDeviceName(): string {
-  return Platform.OS === 'ios' ? 'My iPhone' : 'My Phone';
+  if (Platform.OS === 'ios') return 'iPhone';
+  try {
+    const c = (Platform as any).constants ?? {};
+    const model = String(c.Model ?? '').trim();
+    const brand = String(c.Brand ?? c.Manufacturer ?? '').trim();
+    // Friendly models ("Pixel 8") read fine; codes ("SM-S918U") don't.
+    const looksLikeCode = /^[A-Z0-9]{1,4}[-_]?[A-Z0-9]{3,}$/i.test(model) && !/\s/.test(model);
+    if (model && !looksLikeCode) return model.length > 24 ? model.slice(0, 24) : model;
+    if (brand) return `${brand.charAt(0).toUpperCase()}${brand.slice(1).toLowerCase()} phone`;
+  } catch {}
+  return 'My Phone';
 }
 
 // Proof that a remote stop/unlock is coming from THIS linked install (see

@@ -1,6 +1,14 @@
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
+import {
+  MIN_ENROLLMENT_CONSISTENCY,
+  MIN_SPEAKER_FRAMES,
+  calibrateThreshold,
+  centroid,
+  cosine,
+  isWeakTraining,
+} from "./voiceMath";
 
 // Default wake phrases per device type
 export const DEFAULT_WAKE_PHRASES: Record<string, string> = {
@@ -26,6 +34,7 @@ export const listEnrollments = query({
       wakePhrase: v.string(),
       sampleVectors: v.optional(v.array(v.array(v.number()))),
       referenceVector: v.optional(v.array(v.number())),
+      matchThreshold: v.optional(v.number()),
     }),
   ),
   handler: async (ctx) => {
@@ -53,6 +62,7 @@ export const getDeviceEnrollment = query({
       wakePhrase: v.string(),
       sampleVectors: v.optional(v.array(v.array(v.number()))),
       referenceVector: v.optional(v.array(v.number())),
+      matchThreshold: v.optional(v.number()),
     }),
     v.null(),
   ),
@@ -99,6 +109,7 @@ export const startEnrollment = mutation({
         wakePhrase,
         sampleVectors: [],
         referenceVector: undefined,
+        matchThreshold: undefined,
       });
       return existing._id;
     }
@@ -116,24 +127,25 @@ export const startEnrollment = mutation({
 
 const SAMPLES_REQUIRED = 5;
 
-// Element-wise average of several equal-length vectors -- combines the 5
-// enrollment samples into one reference voiceprint. Averaging smooths out
-// per-utterance noise/variation rather than relying on any single sample.
-function averageVectors(vectors: number[][]): number[] {
-  const dim = vectors[0].length;
-  const sums = new Array(dim).fill(0);
-  for (const vec of vectors) {
-    for (let i = 0; i < dim; i++) sums[i] += vec[i];
-  }
-  return sums.map((s) => s / vectors.length);
-}
-
 // Record a voice sample for a specific device. `vector` is the real x-vector
 // (voice fingerprint) extracted natively by Vosk's speaker-identification
 // model for this one utterance -- see WakeWordModule.recordVoiceSample().
 export const recordSample = mutation({
-  args: { enrollmentId: v.id("voiceEnrollment"), vector: v.array(v.number()) },
-  returns: v.object({ sampleCount: v.number(), isComplete: v.boolean() }),
+  args: {
+    enrollmentId: v.id("voiceEnrollment"),
+    vector: v.array(v.number()),
+    // Voiced frames behind this voiceprint (from Vosk). Optional so older
+    // app builds keep working.
+    frames: v.optional(v.number()),
+  },
+  returns: v.object({
+    sampleCount: v.number(),
+    isComplete: v.boolean(),
+    // Set when this recording was thrown out; the app asks to say it again.
+    rejected: v.optional(v.union(v.literal("too_short"), v.literal("inconsistent"))),
+    // Training finished but the recordings varied a lot: suggest retraining.
+    weakTraining: v.optional(v.boolean()),
+  }),
   handler: async (ctx, args) => {
     const userId = await getAuthUserId(ctx);
     if (!userId) throw new Error("Not authenticated");
@@ -142,11 +154,24 @@ export const recordSample = mutation({
     if (!enrollment || enrollment.userId !== userId) {
       throw new Error("Enrollment not found");
     }
+    const existing = enrollment.sampleVectors ?? [];
 
-    const updatedVectors = [...(enrollment.sampleVectors ?? []), args.vector];
+    // Quality gates: a voiceprint from very little speech is unreliable,
+    // and a sample that doesn't resemble the earlier ones is probably
+    // someone else, a TV, or noise — it must not become part of the
+    // owner's voiceprint.
+    if (args.frames !== undefined && args.frames < MIN_SPEAKER_FRAMES) {
+      return { sampleCount: existing.length, isComplete: false, rejected: "too_short" as const };
+    }
+    if (existing.length >= 2 && cosine(args.vector, centroid(existing)) < MIN_ENROLLMENT_CONSISTENCY) {
+      return { sampleCount: existing.length, isComplete: false, rejected: "inconsistent" as const };
+    }
+
+    const updatedVectors = [...existing, args.vector];
     const newCount = updatedVectors.length;
     const isComplete = newCount >= SAMPLES_REQUIRED;
-    const referenceVector = isComplete ? averageVectors(updatedVectors) : undefined;
+    const referenceVector = isComplete ? centroid(updatedVectors) : undefined;
+    const matchThreshold = isComplete ? calibrateThreshold(updatedVectors) : undefined;
 
     await ctx.db.patch(args.enrollmentId, {
       sampleCount: newCount,
@@ -154,6 +179,7 @@ export const recordSample = mutation({
       isEnrolled: isComplete,
       enrolledAt: isComplete ? Date.now() : undefined,
       referenceVector,
+      matchThreshold,
     });
 
     // Mark device as voice-enrolled if complete
@@ -172,7 +198,11 @@ export const recordSample = mutation({
       });
     }
 
-    return { sampleCount: newCount, isComplete };
+    return {
+      sampleCount: newCount,
+      isComplete,
+      ...(isComplete ? { weakTraining: isWeakTraining(updatedVectors) } : {}),
+    };
   },
 });
 
