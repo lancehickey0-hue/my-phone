@@ -1,223 +1,234 @@
 /**
- * Biometric Setup Screen — Enroll Face ID / Fingerprint for device unlock
+ * Unlock Setup — what lets the owner (and only the owner) stop an alarm.
  *
- * During onboarding, users register their biometric so they can:
- *   1. Unlock locked-out devices
- *   2. Optionally use biometric login
- *   3. Authorize sensitive actions (removing devices, changing settings)
+ *   Step 1  Choose a My-Phone PIN (4–8 digits). Account-wide backup that
+ *           always works, checked on the server with an attempt limit.
+ *   Step 2  Register fingerprint/face. Creates a key inside the phone's
+ *           secure hardware that can only be used after a strong biometric
+ *           check; the server only accepts unlocks signed by it.
+ *
+ * The PIN is required first so a changed fingerprint (which invalidates
+ * the hardware key) can never lock the owner out of their own phone.
  */
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   TouchableOpacity,
   ScrollView,
-  Platform,
-  Alert,
+  TextInput,
+  ActivityIndicator,
 } from 'react-native';
 import { useRouter } from 'expo-router';
-import { useMutation, useQuery } from 'convex/react';
+import { useAction, useQuery } from 'convex/react';
 import { api } from '../convex/_generated/api';
-import { BiometricAuth, type BiometricType } from '../src/native/BiometricAuth';
-import { colors, fontSize, spacing, borderRadius } from '../src/lib/theme';
+import { DeviceKey, type StrongBiometric } from '../src/native/DeviceKey';
 
-type SetupStep = 'intro' | 'checking' | 'enrolling' | 'complete' | 'unavailable';
+type Step = 'loading' | 'pin' | 'biometric' | 'done';
 
-export default function BiometricSetupScreen() {
+export default function UnlockSetupScreen() {
   const router = useRouter();
-  const credentials = useQuery(api.biometric.listCredentials) ?? [];
-  const registerCredential = useMutation(api.biometric.registerCredential);
+  const devices = useQuery(api.devices.list);
+  const physicalId = (globalThis as any).__myPhoneDeviceId as string | undefined;
+  const myDevice = devices?.find((d) => d.physicalDeviceId === physicalId);
+  const status = useQuery(api.unlock.status, myDevice ? { deviceId: myDevice._id } : {});
 
-  const [step, setStep] = useState<SetupStep>('intro');
-  const [biometricType, setBiometricType] = useState<BiometricType>('none');
+  const setPinAction = useAction(api.unlockNode.setPin);
+  const registerKey = useAction(api.unlockNode.registerKey);
+
+  const [step, setStep] = useState<Step>('loading');
+  const [changingPin, setChangingPin] = useState(false);
+  const [currentPin, setCurrentPin] = useState('');
+  const [pin, setPin] = useState('');
+  const [pinConfirm, setPinConfirm] = useState('');
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [strong, setStrong] = useState<StrongBiometric>('unavailable');
 
-  const biometricLabel = BiometricAuth.getBiometricLabel(biometricType);
-  const biometricIcon = BiometricAuth.getBiometricIcon(biometricType);
-  const alreadySetup = credentials.length > 0;
+  useEffect(() => {
+    DeviceKey.strongBiometric().then(setStrong).catch(() => setStrong('unavailable'));
+  }, []);
 
-  // Check device capabilities
-  const checkCapabilities = async () => {
-    setStep('checking');
+  // Decide where to start once we know what's already set up.
+  useEffect(() => {
+    if (step !== 'loading' || !status) return;
+    if (!status.hasPin) setStep('pin');
+    else if (!status.hasKey) setStep('biometric');
+    else setStep('done');
+  }, [status, step]);
+
+  const savePin = async () => {
     setError(null);
-
-    const caps = await BiometricAuth.getCapabilities();
-
-    if (!caps.isAvailable) {
-      setStep('unavailable');
-      setError('Your device does not support biometric authentication.');
-      return;
-    }
-
-    if (!caps.isEnrolled) {
-      setStep('unavailable');
-      setError(
-        `${BiometricAuth.getBiometricLabel(caps.biometricType)} is available but not set up on your device. ` +
-        'Please enable it in your device settings first.'
-      );
-      return;
-    }
-
-    setBiometricType(caps.biometricType);
-    setStep('enrolling');
-  };
-
-  // Perform biometric enrollment
-  const enrollBiometric = async () => {
-    setError(null);
-
-    const result = await BiometricAuth.authenticate({
-      promptMessage: `Set up ${biometricLabel} for My-Phone`,
-      cancelLabel: 'Cancel',
-    });
-
-    if (result.success) {
-      // Register the credential in the backend
-      const credId = `bio_${Platform.OS}_${Date.now()}`;
-      await registerCredential({
-        credentialId: credId,
-        credentialLabel: `${biometricLabel} (${Platform.OS === 'ios' ? 'iPhone' : 'Android'})`,
+    if (!/^\d{4,8}$/.test(pin)) return setError('Use 4 to 8 numbers.');
+    if (pin !== pinConfirm) return setError("The two PINs don't match.");
+    setBusy(true);
+    try {
+      const result = await setPinAction({
+        pin,
+        currentPin: status?.hasPin ? currentPin : undefined,
       });
-
-      setStep('complete');
-    } else {
-      setError(result.error || 'Biometric verification failed. Please try again.');
+      if (result.ok) {
+        setCurrentPin(''); setPin(''); setPinConfirm(''); setChangingPin(false);
+        setStep(status?.hasKey ? 'done' : 'biometric');
+      } else if (result.reason === 'wrong_pin') {
+        setError(`Current PIN is wrong. ${result.attemptsLeft} tries left.`);
+      } else if (result.reason === 'locked') {
+        setError(`Too many wrong tries. Try again after ${new Date(result.lockedUntil).toLocaleTimeString()}.`);
+      }
+    } catch (e: any) {
+      setError(e?.data ?? e?.message ?? 'Could not save PIN.');
+    } finally {
+      setBusy(false);
     }
   };
+
+  const setUpBiometric = async () => {
+    setError(null);
+    if (!myDevice) return setError('Still connecting this phone to your account. Try again in a moment.');
+    setBusy(true);
+    try {
+      const publicKey = await DeviceKey.createKey();
+      await registerKey({ deviceId: myDevice._id, publicKey });
+      setStep('done');
+    } catch (e: any) {
+      setError(e?.data ?? e?.message ?? 'Could not set up fingerprint/face.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const showPinForm = step === 'pin' || changingPin;
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      {/* Header */}
-      <View style={styles.header}>
-        <Text style={styles.emoji}>
-          {step === 'complete' ? '✅' : step === 'unavailable' ? '⚠️' : '🔐'}
-        </Text>
-        <Text style={styles.title}>
-          {step === 'complete'
-            ? 'Biometric Enrolled!'
-            : step === 'unavailable'
-              ? 'Biometric Unavailable'
-              : 'Biometric Security'}
-        </Text>
-        <Text style={styles.subtitle}>
-          {step === 'complete'
-            ? `${biometricLabel} is now active on your account. You can unlock locked-out devices with a glance or a touch.`
-            : step === 'unavailable'
-              ? error
-              : 'Secure your devices with Face ID or fingerprint. This is required to unlock devices after a lockout.'}
-        </Text>
-      </View>
+    <ScrollView style={styles.container} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+      <Text style={styles.stepper}>
+        {step === 'done' ? 'All set' : `Step ${step === 'biometric' ? 2 : 1} of 2`}
+      </Text>
 
-      {/* Intro step */}
-      {step === 'intro' && (
+      {step === 'loading' && <ActivityIndicator color={gold} style={{ marginTop: 60 }} />}
+
+      {showPinForm && (
         <>
-          <View style={styles.featureList}>
-            <FeatureItem
-              icon="🔓"
-              title="Unlock Locked Devices"
-              desc="Only you can deactivate alarms and unlock your devices"
-            />
-            <FeatureItem
-              icon="🛡️"
-              title="Theft Protection"
-              desc="Even if someone finds your device, they can't bypass the lock"
-            />
-            <FeatureItem
-              icon="⚡"
-              title="Instant Verification"
-              desc="Unlock with a glance (Face ID) or a touch (fingerprint)"
-            />
-          </View>
+          <Text style={styles.emoji}>🔢</Text>
+          <Text style={styles.title}>{status?.hasPin ? 'Change your PIN' : 'Choose a PIN'}</Text>
+          <Text style={styles.subtitle}>
+            This stops the alarm if your fingerprint or face ever doesn't work. Pick 4 to 8 numbers you'll remember.
+          </Text>
 
-          {alreadySetup && (
-            <View style={styles.alreadyBanner}>
-              <Text style={styles.alreadyText}>
-                ✅ You already have {credentials.length} biometric{credentials.length > 1 ? 's' : ''} registered
+          {status?.hasPin && (
+            <PinField label="Current PIN" value={currentPin} onChange={setCurrentPin} />
+          )}
+          <PinField label={status?.hasPin ? 'New PIN' : 'PIN'} value={pin} onChange={setPin} />
+          <PinField label="Type it again" value={pinConfirm} onChange={setPinConfirm} />
+
+          {error && <ErrorBanner text={error} />}
+
+          <PrimaryButton label={busy ? 'Saving…' : 'Save PIN'} onPress={savePin} disabled={busy} />
+          {changingPin ? (
+            <TouchableOpacity style={styles.backLink} onPress={() => { setChangingPin(false); setError(null); }}>
+              <Text style={styles.backLinkText}>Cancel</Text>
+            </TouchableOpacity>
+          ) : (
+            <TouchableOpacity style={styles.backLink} onPress={() => router.replace('/(tabs)')}>
+              <Text style={styles.backLinkText}>Do this later</Text>
+            </TouchableOpacity>
+          )}
+        </>
+      )}
+
+      {step === 'biometric' && !changingPin && (
+        <>
+          <Text style={styles.emoji}>👆</Text>
+          <Text style={styles.title}>Add your fingerprint</Text>
+          {strong === 'available' ? (
+            <>
+              <Text style={styles.subtitle}>
+                After this, only your fingerprint or face can stop the alarm on this phone. Not a thief, not someone who knows your screen code.
               </Text>
-            </View>
+              {error && <ErrorBanner text={error} />}
+              <PrimaryButton label={busy ? 'Setting up…' : 'Set up fingerprint / face'} onPress={setUpBiometric} disabled={busy} />
+            </>
+          ) : (
+            <>
+              <Text style={styles.subtitle}>
+                {strong === 'not_enrolled'
+                  ? "You haven't added a fingerprint to this phone yet. Add one in your phone's Settings → Security, then come back."
+                  : "This phone's fingerprint/face sensor isn't secure enough to use. Your PIN will be used to stop the alarm instead."}
+              </Text>
+              <PrimaryButton label="Use PIN only" onPress={() => setStep('done')} />
+            </>
           )}
-
-          <TouchableOpacity style={styles.primaryButton} onPress={checkCapabilities}>
-            <Text style={styles.primaryButtonText}>
-              {alreadySetup ? 'Add Another Biometric' : 'Set Up Biometric'}
-            </Text>
+          <TouchableOpacity style={styles.backLink} onPress={() => router.replace('/(tabs)')}>
+            <Text style={styles.backLinkText}>Do this later</Text>
           </TouchableOpacity>
         </>
       )}
 
-      {/* Checking step */}
-      {step === 'checking' && (
-        <View style={styles.loadingSection}>
-          <Text style={styles.loadingText}>Checking device capabilities...</Text>
-        </View>
-      )}
-
-      {/* Enrolling step */}
-      {step === 'enrolling' && (
+      {step === 'done' && !changingPin && (
         <>
-          <View style={styles.biometricCard}>
-            <Text style={styles.biometricCardIcon}>{biometricIcon}</Text>
-            <Text style={styles.biometricCardTitle}>{biometricLabel} Detected</Text>
-            <Text style={styles.biometricCardDesc}>
-              Tap the button below to verify your {biometricLabel}. This confirms you're the device owner.
-            </Text>
-          </View>
-
-          {error && (
-            <View style={styles.errorBanner}>
-              <Text style={styles.errorText}>⚠️ {error}</Text>
-            </View>
-          )}
-
-          <TouchableOpacity style={styles.primaryButton} onPress={enrollBiometric}>
-            <Text style={styles.primaryButtonText}>
-              Verify with {biometricLabel}
-            </Text>
+          <Text style={styles.emoji}>✅</Text>
+          <Text style={styles.title}>You're protected</Text>
+          <Text style={styles.subtitle}>
+            {status?.hasKey
+              ? 'Your fingerprint or face stops the alarm. Your PIN is the backup.'
+              : 'Your PIN stops the alarm.'}
+          </Text>
+          <PrimaryButton label="Done" onPress={() => router.replace('/(tabs)')} />
+          <TouchableOpacity style={styles.secondaryButton} onPress={() => { setChangingPin(true); setError(null); }}>
+            <Text style={styles.secondaryButtonText}>Change PIN</Text>
           </TouchableOpacity>
+          {strong === 'available' && (
+            <TouchableOpacity style={styles.secondaryButton} onPress={setUpBiometric} disabled={busy}>
+              <Text style={styles.secondaryButtonText}>
+                {status?.hasKey ? 'Re-register fingerprint / face' : 'Add fingerprint / face'}
+              </Text>
+            </TouchableOpacity>
+          )}
+          {error && <ErrorBanner text={error} />}
         </>
-      )}
-
-      {/* Complete step */}
-      {step === 'complete' && (
-        <TouchableOpacity
-          style={styles.primaryButton}
-          onPress={() => router.replace('/(tabs)')}
-        >
-          <Text style={styles.primaryButtonText}>Done</Text>
-        </TouchableOpacity>
-      )}
-
-      {/* Unavailable step */}
-      {step === 'unavailable' && (
-        <TouchableOpacity
-          style={styles.secondaryButton}
-          onPress={() => router.back()}
-        >
-          <Text style={styles.secondaryButtonText}>Go Back</Text>
-        </TouchableOpacity>
-      )}
-
-      {/* Back link */}
-      {(step === 'intro' || step === 'enrolling') && (
-        <TouchableOpacity style={styles.backLink} onPress={() => router.back()}>
-          <Text style={styles.backLinkText}>← Back</Text>
-        </TouchableOpacity>
       )}
     </ScrollView>
   );
 }
 
-function FeatureItem({ icon, title, desc }: { icon: string; title: string; desc: string }) {
+function PinField({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
   return (
-    <View style={styles.featureItem}>
-      <Text style={styles.featureIcon}>{icon}</Text>
-      <View style={styles.featureTextWrap}>
-        <Text style={styles.featureTitle}>{title}</Text>
-        <Text style={styles.featureDesc}>{desc}</Text>
-      </View>
+    <View style={styles.field}>
+      <Text style={styles.fieldLabel}>{label}</Text>
+      <TextInput
+        style={styles.pinInput}
+        value={value}
+        onChangeText={(t) => onChange(t.replace(/\D/g, ''))}
+        keyboardType="number-pad"
+        secureTextEntry
+        maxLength={8}
+        placeholder="••••"
+        placeholderTextColor="rgba(255,255,255,0.2)"
+      />
     </View>
+  );
+}
+
+function ErrorBanner({ text }: { text: string }) {
+  return (
+    <View style={styles.errorBanner}>
+      <Text style={styles.errorText}>{text}</Text>
+    </View>
+  );
+}
+
+function PrimaryButton({ label, onPress, disabled }: { label: string; onPress: () => void; disabled?: boolean }) {
+  return (
+    <TouchableOpacity
+      style={[styles.primaryButton, disabled && { opacity: 0.6 }]}
+      onPress={onPress}
+      disabled={disabled}
+      activeOpacity={0.8}
+    >
+      <Text style={styles.primaryButtonText}>{label}</Text>
+    </TouchableOpacity>
   );
 }
 
@@ -228,11 +239,17 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: bgDark },
   content: { padding: 24, paddingTop: 60 },
 
-  header: { alignItems: 'center', marginBottom: 32 },
-  emoji: { fontSize: 56, marginBottom: 16 },
+  stepper: { fontSize: 13, fontWeight: '700', color: 'rgba(255,255,255,0.45)', textAlign: 'center', letterSpacing: 1, textTransform: 'uppercase', marginBottom: 20 },
+  emoji: { fontSize: 56, marginBottom: 16, textAlign: 'center' },
+  field: { marginBottom: 14 },
+  fieldLabel: { fontSize: 14, fontWeight: '600', color: 'rgba(255,255,255,0.7)', marginBottom: 6 },
+  pinInput: {
+    backgroundColor: 'rgba(255,255,255,0.06)', borderRadius: 12, borderWidth: 1, borderColor: 'rgba(255,255,255,0.12)',
+    color: '#fff', fontSize: 24, letterSpacing: 8, paddingVertical: 14, paddingHorizontal: 16, textAlign: 'center',
+  },
   title: { fontSize: 26, fontWeight: '800', color: gold, marginBottom: 8, textAlign: 'center' },
   subtitle: {
-    fontSize: 15, color: 'rgba(255,255,255,0.6)', textAlign: 'center', lineHeight: 22, paddingHorizontal: 8,
+    fontSize: 16, color: 'rgba(255,255,255,0.7)', textAlign: 'center', lineHeight: 23, paddingHorizontal: 8, marginBottom: 28,
   },
 
   featureList: { marginBottom: 28 },

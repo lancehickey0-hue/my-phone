@@ -116,7 +116,9 @@ export default function DeviceSetupScreen() {
     logStep('device_setup: finished');
     await SecureStore.setItemAsync('post_login_permissions_done', 'true');
     setStatus('done');
-    router.replace('/(tabs)');
+    // First run: go straight to PIN + fingerprint setup so the owner can
+    // always stop their own alarm. That screen's "Done" lands on (tabs).
+    router.replace('/biometric-setup');
   }
 
   return (

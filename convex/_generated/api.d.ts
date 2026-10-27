@@ -18,6 +18,8 @@ import type * as deviceAuth from "../deviceAuth.js";
 import type * as devices from "../devices.js";
 import type * as http from "../http.js";
 import type * as profiles from "../profiles.js";
+import type * as unlock from "../unlock.js";
+import type * as unlockNode from "../unlockNode.js";
 import type * as users from "../users.js";
 import type * as voiceEnrollment from "../voiceEnrollment.js";
 
@@ -38,6 +40,8 @@ declare const fullApi: ApiFromModules<{
   devices: typeof devices;
   http: typeof http;
   profiles: typeof profiles;
+  unlock: typeof unlock;
+  unlockNode: typeof unlockNode;
   users: typeof users;
   voiceEnrollment: typeof voiceEnrollment;
 }>;

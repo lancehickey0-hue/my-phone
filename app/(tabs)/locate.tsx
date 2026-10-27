@@ -13,6 +13,7 @@ import {
   View,
 } from 'react-native';
 import { api } from '../../convex/_generated/api';
+import { getCallerProof } from '../../src/lib/deviceIdentity';
 import { borderRadius, colors, fontSize, spacing } from '../../src/lib/theme';
 import { deviceEmoji } from '../../src/lib/deviceIcons';
 import { getAlarmManager } from '../../src/native/AlarmManager';
@@ -173,7 +174,7 @@ export default function LocateTab() {
   async function handleStopAlarm() {
     if (!selectedDeviceId) return;
     try {
-      await stopAlarm({ deviceId: selectedDeviceId });
+      await stopAlarm({ deviceId: selectedDeviceId, ...(await getCallerProof()) });
       getAlarmManager().deactivateAlarm(selectedDeviceId, 'remote_unlock');
       setListenState('idle');
     } catch (e: any) {

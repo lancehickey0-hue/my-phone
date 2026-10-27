@@ -7,7 +7,7 @@ import com.facebook.react.uimanager.ViewManager
 
 class WakeWordPackage : ReactPackage {
     override fun createNativeModules(reactContext: ReactApplicationContext): MutableList<NativeModule> {
-        return mutableListOf(WakeWordModule(reactContext))
+        return mutableListOf(WakeWordModule(reactContext), DeviceKeyModule(reactContext))
     }
 
     override fun createViewManagers(reactContext: ReactApplicationContext): MutableList<ViewManager<*, *>> {

@@ -6,7 +6,9 @@
  *   2. This screen takes over (full screen, no navigation escape)
  *   3. Lance's gold infinity animation plays on loop
  *   4. User taps screen → animation pauses → biometric panel slides up
- *   5. Biometric auth succeeds → calls biometricUnlock mutation → alarm off → navigate away
+ *   5. Fingerprint/face signs a one-time server challenge with the phone's
+ *      hardware key (or the owner enters their My-Phone PIN) → server
+ *      verifies → alarm off → navigate away
  *   6. Cancel → panel hides → animation resumes (still locked)
  */
 
@@ -23,13 +25,15 @@ import {
   Platform,
   Alert,
   BackHandler,
+  TextInput,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useMutation, useQuery } from 'convex/react';
+import { useAction, useMutation, useQuery } from 'convex/react';
 import { Video, ResizeMode } from 'expo-av';
 import { api } from '../convex/_generated/api';
 import { BiometricAuth, type BiometricType } from '../src/native/BiometricAuth';
 import { getAlarmManager } from '../src/native/AlarmManager';
+import { DeviceKey, SignError } from '../src/native/DeviceKey';
 import type { Id } from '../convex/_generated/dataModel';
 
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
@@ -46,6 +50,9 @@ export default function LockoutScreen() {
 
   const videoRef = useRef<Video>(null);
   const biometricUnlock = useMutation(api.biometric.biometricUnlock);
+  const createChallenge = useAction(api.unlockNode.createChallenge);
+  const unlockWithSignature = useAction(api.unlockNode.unlockWithSignature);
+  const unlockWithPin = useAction(api.unlockNode.unlockWithPin);
 
   // Animations
   const pulseAnim = useRef(new Animated.Value(0.4)).current;
@@ -63,6 +70,9 @@ export default function LockoutScreen() {
   const myDevice = devices?.find((d) => d.physicalDeviceId === physicalId);
   const deviceId = (params.deviceId || myDevice?._id) as Id<'devices'> | undefined;
   const deviceName = params.deviceName || myDevice?.name || 'This Device';
+  const unlockStatus = useQuery(api.unlock.status, deviceId ? { deviceId } : 'skip');
+  const [showPin, setShowPin] = useState(false);
+  const [pin, setPin] = useState('');
 
   const [biometricType, setBiometricType] = useState<BiometricType>('none');
   useEffect(() => {
@@ -110,45 +120,83 @@ export default function LockoutScreen() {
     }).start();
   };
 
-  // Handle biometric authentication
-   const handleBiometricAuth = async () => {
+  const finishUnlock = () => {
+    if (deviceId) getAlarmManager().deactivateAlarm(deviceId, 'biometric');
+    router.replace('/(tabs)');
+  };
+
+  // Fingerprint/face. With secure unlock set up this signs a one-time
+  // server challenge with the hardware key; the server alone decides.
+  const handleBiometricAuth = async () => {
     if (isAuthenticating) return;
+    if (!deviceId || !unlockStatus) {
+      // Never just navigate away -- that would leave the alarm on with no
+      // way back to this screen.
+      setAuthError('Still connecting to your account. Try again in a moment.');
+      return;
+    }
     setIsAuthenticating(true);
     setAuthError(null);
 
     try {
-      // Trigger native biometric prompt
-   const result = await BiometricAuth.authenticateForUnlock(deviceName);
-
-      if (result.success) {
-        if (!deviceId) {
-          // Never just navigate away -- that would leave the alarm on with
-          // no way back to this screen.
-          setAuthError('Still connecting to your account. Try again in a moment.');
-          setIsAuthenticating(false);
-          return;
-        }
-
-        // Server first: only silence the siren once the unlock is recorded,
-        // otherwise the native lock poller would (correctly) restart it.
-        await biometricUnlock({ deviceId });
-        getAlarmManager().deactivateAlarm(deviceId, 'biometric');
-
-        router.replace('/(tabs)');
-      } else if (result.errorCode === 'user_cancel') {
-        setIsAuthenticating(false);
-      } else if (result.errorCode === 'lockout') {
-        setAuthError('Too many failed attempts. Wait 30 seconds and try again.');
-        setIsAuthenticating(false);
+      if (unlockStatus.hasKey && DeviceKey.isSupported()) {
+        const { challengeId, challenge } = await createChallenge({ deviceId });
+        const signature = await DeviceKey.sign(challenge, `Unlock ${deviceName}`, 'Touch the sensor to stop the alarm');
+        const ok = await unlockWithSignature({ deviceId, challengeId, signature });
+        if (ok) return finishUnlock();
+        setAuthError("That didn't work. Try again, or use your PIN.");
+      } else if (unlockStatus.hasPin) {
+        setShowPin(true);
       } else {
-        setAuthError(result.error || 'Authentication failed. Please try again.');
-        setIsAuthenticating(false);
+        // Secure unlock not set up yet: legacy on-device check, so an
+        // owner who skipped setup is never trapped by the siren.
+        const result = await BiometricAuth.authenticateForUnlock(deviceName);
+        if (result.success) {
+          await biometricUnlock({ deviceId });
+          return finishUnlock();
+        }
+        if (result.errorCode === 'lockout') setAuthError('Too many failed attempts. Wait 30 seconds and try again.');
+        else if (result.errorCode !== 'user_cancel') setAuthError(result.error || 'Authentication failed. Please try again.');
       }
-    } catch (err) {
-      console.error('Biometric unlock error:', err);
-      setAuthError('An error occurred. Please try again.');
-      setIsAuthenticating(false);
+    } catch (err: any) {
+      if (err instanceof SignError) {
+        if (err.code === 'use_pin') setShowPin(true);
+        else if (err.code === 'key_invalidated' || err.code === 'no_key') {
+          setShowPin(true);
+          setAuthError('Your fingerprints changed since setup. Use your PIN, then set up fingerprint again.');
+        } else if (err.code === 'lockout') {
+          setShowPin(true);
+          setAuthError('Too many tries with your fingerprint. Use your PIN.');
+        } else if (err.code !== 'user_cancel') setAuthError(err.message);
+      } else {
+        setAuthError(err?.data ?? err?.message ?? 'Something went wrong. Please try again.');
+      }
     }
+    setIsAuthenticating(false);
+  };
+
+  const handlePinUnlock = async () => {
+    if (isAuthenticating || !deviceId) return;
+    if (pin.length < 4) return setAuthError('Enter your 4–8 number PIN.');
+    setIsAuthenticating(true);
+    setAuthError(null);
+    try {
+      const result = await unlockWithPin({ deviceId, pin });
+      setPin('');
+      if (result.ok) return finishUnlock();
+      if (result.reason === 'wrong_pin') {
+        setAuthError(result.attemptsLeft > 0
+          ? `Wrong PIN. ${result.attemptsLeft} ${result.attemptsLeft === 1 ? 'try' : 'tries'} left.`
+          : 'Wrong PIN. PIN entry is paused for a few minutes.');
+      } else if (result.reason === 'locked') {
+        setAuthError(`Too many wrong PINs. Try again after ${new Date(result.lockedUntil).toLocaleTimeString()}.`);
+      } else {
+        setAuthError('No PIN is set up for this account.');
+      }
+    } catch (err: any) {
+      setAuthError(err?.data ?? err?.message ?? 'Something went wrong. Please try again.');
+    }
+    setIsAuthenticating(false);
   };
 
   // Handle cancel → hide panel, resume animation
@@ -236,17 +284,53 @@ export default function LockoutScreen() {
             </View>
           )}
 
-          {/* Unlock button */}
-          <TouchableOpacity
-            style={[styles.unlockButton, isAuthenticating && styles.unlockButtonDisabled]}
-            onPress={handleBiometricAuth}
-            disabled={isAuthenticating}
-            activeOpacity={0.8}
-          >
-            <Text style={styles.unlockButtonText}>
-              {isAuthenticating ? '⏳ Verifying...' : `🔐  Unlock with ${biometricLabel}`}
-            </Text>
-          </TouchableOpacity>
+          {showPin ? (
+            <>
+              <TextInput
+                style={styles.pinInput}
+                value={pin}
+                onChangeText={(t) => setPin(t.replace(/\D/g, ''))}
+                keyboardType="number-pad"
+                secureTextEntry
+                maxLength={8}
+                autoFocus
+                placeholder="My-Phone PIN"
+                placeholderTextColor="rgba(255,255,255,0.3)"
+                onSubmitEditing={handlePinUnlock}
+              />
+              <TouchableOpacity
+                style={[styles.unlockButton, isAuthenticating && styles.unlockButtonDisabled]}
+                onPress={handlePinUnlock}
+                disabled={isAuthenticating}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.unlockButtonText}>{isAuthenticating ? '⏳ Checking...' : 'Unlock with PIN'}</Text>
+              </TouchableOpacity>
+              {unlockStatus?.hasKey && (
+                <TouchableOpacity style={styles.cancelButton} onPress={() => { setShowPin(false); setAuthError(null); }}>
+                  <Text style={styles.cancelButtonText}>Use fingerprint instead</Text>
+                </TouchableOpacity>
+              )}
+            </>
+          ) : (
+            <>
+              <TouchableOpacity
+                style={[styles.unlockButton, isAuthenticating && styles.unlockButtonDisabled]}
+                onPress={handleBiometricAuth}
+                disabled={isAuthenticating}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.unlockButtonText}>
+                  {isAuthenticating ? '⏳ Verifying...' : `🔐  Unlock with ${biometricLabel}`}
+                </Text>
+              </TouchableOpacity>
+              {unlockStatus?.hasPin && (
+                <TouchableOpacity style={styles.cancelButton} onPress={() => { setShowPin(true); setAuthError(null); }}>
+                  <Text style={styles.cancelButtonText}>Use PIN instead</Text>
+                </TouchableOpacity>
+              )}
+            </>
+          )}
 
           {/* Cancel */}
           <TouchableOpacity
@@ -355,6 +439,11 @@ export default function LockoutScreen() {
     alignItems: 'center', marginBottom: 14,
   },
   unlockButtonDisabled: { opacity: 0.6 },
+  pinInput: {
+    width: '100%', backgroundColor: 'rgba(255,255,255,0.06)', borderRadius: 12,
+    borderWidth: 1, borderColor: 'rgba(212,168,67,0.35)', color: '#fff', fontSize: 22,
+    letterSpacing: 6, paddingVertical: 14, textAlign: 'center', marginBottom: 14,
+  },
   unlockButtonText: { fontSize: 16, fontWeight: '700', color: bgDark },
 
   cancelButton: {

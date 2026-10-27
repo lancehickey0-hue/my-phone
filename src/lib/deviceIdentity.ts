@@ -70,3 +70,13 @@ export async function readDeviceSecret(): Promise<string> {
 export function defaultDeviceName(): string {
   return Platform.OS === 'ios' ? 'My iPhone' : 'My Phone';
 }
+
+// Proof that a remote stop/unlock is coming from THIS linked install (see
+// assertRemoteCaller in convex/devices.ts). Spread into the mutation args.
+export async function getCallerProof(): Promise<{
+  callerPhysicalDeviceId?: string;
+  callerDeviceSecret?: string;
+}> {
+  const [id, secret] = await Promise.all([readPhysicalDeviceId(), readDeviceSecret()]);
+  return id && secret ? { callerPhysicalDeviceId: id, callerDeviceSecret: secret } : {};
+}

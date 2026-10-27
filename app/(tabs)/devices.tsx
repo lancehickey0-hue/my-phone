@@ -14,7 +14,7 @@ import { api } from '../../convex/_generated/api';
 import { type Id } from '../../convex/_generated/dataModel';
 import { deviceEmojis, deviceLabels, type DeviceType } from '../../src/lib/deviceIcons';
 import { borderRadius, colors, fontSize, spacing } from '../../src/lib/theme';
-import { getOrCreateDeviceSecret, getPhysicalDeviceId } from '../../src/lib/deviceIdentity';
+import { getCallerProof, getOrCreateDeviceSecret, getPhysicalDeviceId } from '../../src/lib/deviceIdentity';
 
 const DEVICE_TYPES: DeviceType[] = ['phone', 'tablet', 'laptop', 'earbuds', 'watch'];
 
@@ -39,6 +39,17 @@ export default function DevicesTab() {
       .then(setCurrentPhysicalDeviceId)
       .catch(() => {});
   }, []);
+
+  // Remote stop/unlock: attach this install's proof and surface the
+  // server's reason if it refuses (e.g. trying to unlock the alarming
+  // phone from itself).
+  async function runRemote(call: (proof: Awaited<ReturnType<typeof getCallerProof>>) => Promise<unknown>) {
+    try {
+      await call(await getCallerProof());
+    } catch (e: any) {
+      Alert.alert('Not allowed', e?.data ?? e?.message ?? 'Something went wrong.');
+    }
+  }
 
   async function handleAddDevice() {
     if (!newDeviceName.trim()) return;
@@ -118,7 +129,7 @@ export default function DevicesTab() {
               {device.isAlarmActive ? (
                 <Pressable
                   style={[styles.actionBtn, styles.actionSuccess]}
-                  onPress={() => stopAlarm({ deviceId: device._id })}
+                  onPress={() => runRemote((proof) => stopAlarm({ deviceId: device._id, ...proof }))}
                 >
                   <Text style={styles.actionSuccessText}>🔕 Stop Alarm</Text>
                 </Pressable>
@@ -134,7 +145,7 @@ export default function DevicesTab() {
               {device.isLocked ? (
                 <Pressable
                   style={[styles.actionBtn, styles.actionGold]}
-                  onPress={() => unlockDevice({ deviceId: device._id })}
+                  onPress={() => runRemote((proof) => unlockDevice({ deviceId: device._id, ...proof }))}
                 >
                   <Text style={styles.actionGoldText}>🔓 Unlock</Text>
                 </Pressable>
