@@ -1,8 +1,6 @@
 import * as Location from 'expo-location';
 import * as TaskManager from 'expo-task-manager';
-import * as Application from 'expo-application';
-import * as SecureStore from 'expo-secure-store';
-import { Platform } from 'react-native';
+import { readDeviceSecret, readPhysicalDeviceId } from './deviceIdentity';
 
 const CONVEX_SITE_URL = process.env.EXPO_PUBLIC_CONVEX_SITE_URL || 'https://cheery-buffalo-947.convex.site';
 
@@ -14,23 +12,6 @@ function logStep(message: string, level: string = 'info') {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ source: 'BackgroundLocation', message, level }),
   }).catch(() => {});
-}
-
-// Mirrors the exact physicalDeviceId resolution in app/_layout.tsx's device
-// registration effect (androidId first, then the stored fallback UUID) --
-// deliberately NOT generating a new UUID here if both are missing, since a
-// background task minting its own ID would create a phantom device that
-// doesn't match whatever was actually registered at login.
-async function resolvePhysicalDeviceId(): Promise<string> {
-  if (Platform.OS === 'android') {
-    const androidId = (Application as any).androidId;
-    if (androidId) return androidId;
-  } else {
-    const iosId = await Application.getIosIdForVendorAsync();
-    if (iosId) return iosId;
-  }
-  const stored = await SecureStore.getItemAsync('device_uuid');
-  return stored ?? '';
 }
 
 // Defined unconditionally at module load -- required by TaskManager even
@@ -49,9 +30,12 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }) => {
   if (!loc) return;
 
   try {
-    const physicalDeviceId = await resolvePhysicalDeviceId();
-    if (!physicalDeviceId) {
-      logStep('no physicalDeviceId available, skipping update', 'warn');
+    const [physicalDeviceId, deviceSecret] = await Promise.all([
+      readPhysicalDeviceId(),
+      readDeviceSecret(),
+    ]);
+    if (!physicalDeviceId || !deviceSecret) {
+      logStep('device not linked yet (no id/secret), skipping update', 'warn');
       return;
     }
 
@@ -60,6 +44,7 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }) => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         physicalDeviceId,
+        deviceSecret,
         latitude: loc.coords.latitude,
         longitude: loc.coords.longitude,
       }),

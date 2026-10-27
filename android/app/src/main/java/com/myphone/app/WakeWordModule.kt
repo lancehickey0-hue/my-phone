@@ -40,6 +40,11 @@ class WakeWordModule(private val reactContext: ReactApplicationContext) :
             if (config.has("physicalDeviceId")) {
                 editor.putString("physical_device_id", config.getString("physicalDeviceId"))
             }
+            // Install secret that authenticates the service's direct Convex
+            // calls (alarm trigger, lock poll) -- see convex/deviceAuth.ts.
+            if (config.has("deviceSecret") && config.getString("deviceSecret").isNotEmpty()) {
+                editor.putString("device_secret", config.getString("deviceSecret"))
+            }
             // Present only if this device has completed voice enrollment --
             // see voiceEnrollments.find(...) in (tabs)/_layout.tsx. Absent
             // means WakeWordService falls back to phrase-match-only
@@ -275,6 +280,26 @@ class WakeWordModule(private val reactContext: ReactApplicationContext) :
         } catch (e: Exception) {
             promise.reject("LOCK_FAILED", e.message)
         }
+    }
+
+    // Starts the native siren (and its tap-to-unlock notification) if the
+    // wake-word service is running. Resolves false when it isn't, so JS
+    // can fall back to playing the alarm itself.
+    @ReactMethod
+    fun startAlarm(promise: Promise) {
+        val service = WakeWordService.instance
+        if (service == null) {
+            promise.resolve(false)
+            return
+        }
+        service.startAlarmFromApp()
+        promise.resolve(service.isAlarmSounding())
+    }
+
+    // Stops the native siren immediately -- called after biometric unlock.
+    @ReactMethod
+    fun stopAlarm() {
+        WakeWordService.instance?.stopAlarmFromApp()
     }
 
     @ReactMethod

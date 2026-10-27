@@ -40,6 +40,20 @@ const schema = defineSchema({
     .index("by_userId_and_type", ["userId", "type"])
     .index("by_physicalDeviceId", ["physicalDeviceId"]),
 
+  // Per-install secret that authenticates the device's own headless HTTP
+  // calls (background location, native alarm trigger, lock-state poll).
+  // Kept in its own table so the hash never rides along in devices.list
+  // to the client. Only the SHA-256 hash is stored; the raw secret lives
+  // in the install's SecureStore / SharedPreferences.
+  deviceSecrets: defineTable({
+    deviceId: v.id("devices"),
+    physicalDeviceId: v.string(),
+    secretHash: v.string(),
+    createdAt: v.number(),
+  })
+    .index("by_physicalDeviceId", ["physicalDeviceId"])
+    .index("by_deviceId", ["deviceId"]),
+
   // User profiles with roles
   profiles: defineTable({
     userId: v.id("users"),

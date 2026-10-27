@@ -14,8 +14,7 @@ import { api } from '../../convex/_generated/api';
 import { type Id } from '../../convex/_generated/dataModel';
 import { deviceEmojis, deviceLabels, type DeviceType } from '../../src/lib/deviceIcons';
 import { borderRadius, colors, fontSize, spacing } from '../../src/lib/theme';
-import * as Application from 'expo-application';
-import * as SecureStore from 'expo-secure-store';
+import { getOrCreateDeviceSecret, getPhysicalDeviceId } from '../../src/lib/deviceIdentity';
 
 const DEVICE_TYPES: DeviceType[] = ['phone', 'tablet', 'laptop', 'earbuds', 'watch'];
 
@@ -34,27 +33,11 @@ export default function DevicesTab() {
   const [newDeviceType, setNewDeviceType] = useState<DeviceType>('phone');
   const [currentPhysicalDeviceId, setCurrentPhysicalDeviceId] = useState('');
 
-  // Resolved once per app session -- same fallback chain used everywhere else
-  // (app/_layout.tsx, src/lib/BackgroundLocation.ts) so "Mine" comparisons are
-  // consistent regardless of where the ID gets computed.
+  // Same ID the root layout links on sign-in (src/lib/deviceIdentity.ts).
   useEffect(() => {
-    (async () => {
-      let physicalDeviceId = Application.androidId ?? '';
-      if (!physicalDeviceId) {
-        const stored = await SecureStore.getItemAsync('device_uuid');
-        if (stored) {
-          physicalDeviceId = stored;
-        } else {
-          const uuid = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
-            const r = Math.random() * 16 | 0;
-            return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
-          });
-          await SecureStore.setItemAsync('device_uuid', uuid);
-          physicalDeviceId = uuid;
-        }
-      }
-      setCurrentPhysicalDeviceId(physicalDeviceId);
-    })();
+    getPhysicalDeviceId()
+      .then(setCurrentPhysicalDeviceId)
+      .catch(() => {});
   }, []);
 
   async function handleAddDevice() {
@@ -170,7 +153,12 @@ export default function DevicesTab() {
                   onPress={() => {
                     const doClaim = async () => {
                       try {
-                        await registerPhysicalDevice({ deviceId: device._id, physicalDeviceId: currentPhysicalDeviceId });
+                        const deviceSecret = await getOrCreateDeviceSecret();
+                        await registerPhysicalDevice({
+                          deviceId: device._id,
+                          physicalDeviceId: currentPhysicalDeviceId,
+                          deviceSecret,
+                        });
                         Alert.alert('✅ Done', `This device is now "${device.name}".`);
                       } catch (e: any) {
                         Alert.alert('Error', e.message);

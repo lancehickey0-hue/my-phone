@@ -1,5 +1,23 @@
 import { Audio } from 'expo-av';
-import { Vibration } from 'react-native';
+import { NativeModules, Platform, Vibration } from 'react-native';
+
+// On Android the wake-word service owns the siren (it keeps playing with
+// the app backgrounded and forces alarm volume to max). JS only plays its
+// own copy when that service isn't running, so there's never two sirens.
+const { WakeWordModule } = NativeModules;
+
+async function startNativeSiren(): Promise<boolean> {
+  if (Platform.OS !== 'android' || !WakeWordModule?.startAlarm) return false;
+  try {
+    return !!(await WakeWordModule.startAlarm());
+  } catch {
+    return false;
+  }
+}
+
+function stopNativeSiren() {
+  if (Platform.OS === 'android') WakeWordModule?.stopAlarm?.();
+}
 
 export type AlarmState = 'inactive' | 'triggered' | 'sounding' | 'locked';
 
@@ -73,8 +91,16 @@ export class AlarmManager {
   }
 
   deactivateAlarm(deviceId: string, deactivatedBy: 'biometric' | 'remote_unlock'): boolean {
+    // Always silence the native siren -- it may have been started by the
+    // wake-word service while this JS instance wasn't running, in which
+    // case there's no entry in activeAlarms.
+    stopNativeSiren();
+
     const alarm = this.activeAlarms.get(deviceId);
-    if (!alarm) return false;
+    if (!alarm) {
+      this.stopAlarmAudio();
+      return false;
+    }
 
     const deactivatedEvent: AlarmEvent = {
       ...alarm,
@@ -90,6 +116,11 @@ export class AlarmManager {
   }
 
   private async startAlarmAudio(deviceId: string): Promise<void> {
+    const config = this.configs.get(deviceId) || { ...DEFAULT_CONFIG, deviceId };
+    if (await startNativeSiren()) {
+      if (config.vibrate) Vibration.vibrate(VIBRATION_PATTERN, true);
+      return;
+    }
     try {
       await Audio.setAudioModeAsync({
         playsInSilentModeIOS: true,
@@ -110,7 +141,6 @@ export class AlarmManager {
 
       this.soundObject = sound;
 
-      const config = this.configs.get(deviceId) || { ...DEFAULT_CONFIG, deviceId };
       if (config.vibrate) Vibration.vibrate(VIBRATION_PATTERN, true);
     } catch (e) {
       console.error('[AlarmManager] Failed to start audio:', e);

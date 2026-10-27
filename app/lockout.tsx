@@ -22,12 +22,13 @@ import {
   StatusBar,
   Platform,
   Alert,
+  BackHandler,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useMutation } from 'convex/react';
+import { useMutation, useQuery } from 'convex/react';
 import { Video, ResizeMode } from 'expo-av';
 import { api } from '../convex/_generated/api';
-import { BiometricAuth } from '../src/native/BiometricAuth';
+import { BiometricAuth, type BiometricType } from '../src/native/BiometricAuth';
 import { getAlarmManager } from '../src/native/AlarmManager';
 import type { Id } from '../convex/_generated/dataModel';
 
@@ -55,8 +56,29 @@ export default function LockoutScreen() {
   const [isAuthenticating, setIsAuthenticating] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
 
-  const deviceName = params.deviceName || 'This Device';
-  const deviceId = params.deviceId as Id<'devices'> | undefined;
+  // Opened from the native alarm notification (myphone://lockout) there are
+  // no params -- resolve this install's own device record instead.
+  const devices = useQuery(api.devices.list);
+  const physicalId = (globalThis as any).__myPhoneDeviceId as string | undefined;
+  const myDevice = devices?.find((d) => d.physicalDeviceId === physicalId);
+  const deviceId = (params.deviceId || myDevice?._id) as Id<'devices'> | undefined;
+  const deviceName = params.deviceName || myDevice?.name || 'This Device';
+
+  const [biometricType, setBiometricType] = useState<BiometricType>('none');
+  useEffect(() => {
+    BiometricAuth.getCapabilities()
+      .then((c) => setBiometricType(c.isEnrolled ? c.biometricType : 'none'))
+      .catch(() => {});
+  }, []);
+  const biometricLabel = biometricType === 'none'
+    ? 'your screen lock'
+    : BiometricAuth.getBiometricLabel(biometricType);
+
+  // No escape: the hardware back button does nothing while locked out.
+  useEffect(() => {
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => true);
+    return () => sub.remove();
+  }, []);
 
   // Pulse "Touch to unlock" text
   useEffect(() => {
@@ -99,19 +121,26 @@ export default function LockoutScreen() {
    const result = await BiometricAuth.authenticateForUnlock(deviceName);
 
       if (result.success) {
-        // Success — unlock the device in backend
-        if (deviceId) {
-          await biometricUnlock({ deviceId });
-
-          // Deactivate alarm locally
-          const alarmMgr = getAlarmManager();
-          alarmMgr.deactivateAlarm(deviceId, 'biometric');
+        if (!deviceId) {
+          // Never just navigate away -- that would leave the alarm on with
+          // no way back to this screen.
+          setAuthError('Still connecting to your account. Try again in a moment.');
+          setIsAuthenticating(false);
+          return;
         }
 
-        // Navigate back to main app
+        // Server first: only silence the siren once the unlock is recorded,
+        // otherwise the native lock poller would (correctly) restart it.
+        await biometricUnlock({ deviceId });
+        getAlarmManager().deactivateAlarm(deviceId, 'biometric');
+
         router.replace('/(tabs)');
+      } else if (result.errorCode === 'user_cancel') {
+        setIsAuthenticating(false);
+      } else if (result.errorCode === 'lockout') {
+        setAuthError('Too many failed attempts. Wait 30 seconds and try again.');
+        setIsAuthenticating(false);
       } else {
-        // Auth failed
         setAuthError(result.error || 'Authentication failed. Please try again.');
         setIsAuthenticating(false);
       }
@@ -197,7 +226,7 @@ export default function LockoutScreen() {
           <Text style={styles.biometricIcon}>🔐</Text>
           <Text style={styles.biometricTitle}>Verify Identity</Text>
           <Text style={styles.biometricSubtitle}>
-            Use Face ID or fingerprint to unlock{'\n'}{deviceName}
+            Use {biometricLabel} to unlock{'\n'}{deviceName}
           </Text>
 
           {/* Error message */}
@@ -215,7 +244,7 @@ export default function LockoutScreen() {
             activeOpacity={0.8}
           >
             <Text style={styles.unlockButtonText}>
-              {isAuthenticating ? '⏳ Verifying...' : '🔐  Unlock with Face ID'}
+              {isAuthenticating ? '⏳ Verifying...' : `🔐  Unlock with ${biometricLabel}`}
             </Text>
           </TouchableOpacity>
 

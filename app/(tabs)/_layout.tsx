@@ -9,6 +9,7 @@ import { AlarmWatcher } from '../../src/lib/AlarmWatcher';
 import { LockWatcher } from '../../src/lib/LockWatcher';
 import { getPhraseVariants } from '../../src/lib/deviceIcons';
 import { colors } from '../../src/lib/theme';
+import { readDeviceSecret } from '../../src/lib/deviceIdentity';
 
 const { WakeWordModule } = NativeModules;
 
@@ -133,9 +134,16 @@ function HeartbeatManager() {
       const myEnrollment = voiceEnrollments.find((e) => e.deviceId === myDevice._id);
       const referenceVector = myEnrollment?.isEnrolled ? myEnrollment.referenceVector : undefined;
 
+      // The native service calls Convex directly (alarm trigger, lock
+      // poll) and must authenticate with this install's secret.
+      // (wakeServiceStarted is already set, so start even if this effect
+      // re-ran meanwhile — otherwise the service would never start.)
+      const deviceSecret = await readDeviceSecret();
+
       WakeWordModule.startService(JSON.stringify({
         phrases: getPhraseVariants(rawPhrase),
         physicalDeviceId: physicalId,
+        deviceSecret,
         referenceVector,
       }));
     })();
