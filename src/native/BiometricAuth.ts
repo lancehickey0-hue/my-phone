@@ -82,40 +82,13 @@ export class BiometricAuth {
     }
   }
 
-  // Silencing the alarm must take the owner's actual fingerprint/face.
-  // With device fallback on, anyone who knows (or shoulder-surfed) the
-  // phone's PIN could stop it, which defeats the point. Fallback is only
-  // allowed when no biometrics are enrolled at all -- otherwise a phone
-  // with no fingerprint/face set up could never be unlocked.
+  // Silencing the alarm must take the owner's actual fingerprint/face or
+  // their My-Phone PIN -- NEVER the phone's own screen-lock code. Anyone who
+  // knows (or shoulder-surfed) that code could otherwise stop it. So the
+  // system passcode fallback is always off here; with no fingerprint/face
+  // enrolled this returns 'not_enrolled' and the lockout screen uses the
+  // My-Phone PIN instead.
   static async authenticateForUnlock(deviceName: string): Promise<AuthResult> {
-    let biometricsEnrolled = false;
-    try {
-      biometricsEnrolled =
-        (await LocalAuthentication.hasHardwareAsync()) &&
-        (await LocalAuthentication.isEnrolledAsync());
-    } catch {
-      biometricsEnrolled = false;
-    }
-
-    if (!biometricsEnrolled) {
-      try {
-        const result = await LocalAuthentication.authenticateAsync({
-          promptMessage: `Unlock ${deviceName}`,
-          cancelLabel: 'Cancel',
-          disableDeviceFallback: false,
-        });
-        if (result.success) return { success: true };
-        const error = (result as any).error as string;
-        return {
-          success: false,
-          error,
-          errorCode: error === 'user_cancel' || error === 'system_cancel' ? 'user_cancel' : 'system_error',
-        };
-      } catch (e: any) {
-        return { success: false, error: e.message, errorCode: 'system_error' };
-      }
-    }
-
     return this.authenticate({
       promptMessage: `Unlock ${deviceName}`,
       cancelLabel: 'Cancel',

@@ -79,6 +79,13 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
   const ensureProfile = useMutation(api.profiles.ensureProfile);
   const claimThisDevice = useMutation(api.deviceAuth.claimThisDevice);
   const devices = useQuery(api.devices.list) ?? [];
+  // Whether this account has its My-Phone PIN yet. Required right after
+  // sign-up (see app/pin-setup.tsx) — undefined while loading.
+  const unlockStatus = useQuery(
+    api.unlock.status,
+    isAuthenticated && currentUser ? {} : 'skip',
+  );
+  const hasPin = unlockStatus?.hasPin;
   const devicesRef = useRef(devices);
   devicesRef.current = devices;
   const segments = useSegments();
@@ -259,12 +266,28 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
     // Real, confirmed user — safe to enter the app now. Post-login
     // permissions (notifications, mic, phone_state, device_admin) still
     // need to be requested once per install — see device-setup.tsx.
+    // First stop after creating an account (the voice model download
+    // already happened in wake-word-setup): the My-Phone PIN. Wait until
+    // we know whether one exists so we don't flash the wrong screen.
     if (segments[0] === 'auth' || segments[0] === 'wake-word-setup') {
+      if (hasPin === undefined) return;
+      if (!hasPin) {
+        router.replace('/pin-setup');
+        return;
+      }
       SecureStore.getItemAsync('post_login_permissions_done').then((done) => {
         router.replace(done === 'true' ? '/(tabs)' : '/device-setup');
       });
+      return;
     }
-  }, [isAuthenticated, isLoading, currentUser, segments, setupChecked]);
+
+    // Anyone signed in without a PIN (including accounts created before
+    // this was required) gets sent to set one. The lockout screen is left
+    // alone so an alarm already going off is never interrupted.
+    if (hasPin === false && segments[0] !== 'pin-setup' && segments[0] !== 'lockout') {
+      router.replace('/pin-setup');
+    }
+  }, [isAuthenticated, isLoading, currentUser, segments, setupChecked, hasPin]);
 
   return <>{children}</>;
 }
@@ -289,6 +312,7 @@ export default function RootLayout() {
             options={{ headerShown: false, presentation: 'fullScreenModal', gestureEnabled: false }}
           />
           <Stack.Screen name="wake-word-setup" options={{ headerShown: false }} />
+          <Stack.Screen name="pin-setup" options={{ headerShown: false, gestureEnabled: false }} />
           <Stack.Screen name="device-setup" options={{ headerShown: false }} />
           <Stack.Screen name="voice-setup" options={{ headerShown: false, presentation: 'modal' }} />
           <Stack.Screen name="biometric-setup" options={{ headerShown: false, presentation: 'modal' }} />

@@ -135,7 +135,7 @@ export default function ProfileTab() {
         <Pressable style={styles.securityRow} onPress={() => router.push('/biometric-setup')}>
           <Text style={styles.securityEmoji}>🔐</Text>
           <View style={{ flex: 1 }}>
-            <Text style={styles.securityLabel}>Biometric Unlock</Text>
+            <Text style={styles.securityLabel}>Fingerprint & PIN</Text>
             <Text style={styles.securityStatus}>
               {biometricCreds.length > 0
                 ? `✅ ${biometricCreds.length} credential${biometricCreds.length !== 1 ? 's' : ''} registered`

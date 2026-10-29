@@ -25,6 +25,7 @@ import { useRouter } from 'expo-router';
 import { useAction, useQuery } from 'convex/react';
 import { api } from '../convex/_generated/api';
 import { DeviceKey, type StrongBiometric } from '../src/native/DeviceKey';
+import { pinProblem } from '../convex/pinRules';
 
 type Step = 'loading' | 'pin' | 'biometric' | 'done';
 
@@ -61,7 +62,8 @@ export default function UnlockSetupScreen() {
 
   const savePin = async () => {
     setError(null);
-    if (!/^\d{4,8}$/.test(pin)) return setError('Use 4 to 8 numbers.');
+    const problem = pinProblem(pin);
+    if (problem) return setError(problem);
     if (pin !== pinConfirm) return setError("The two PINs don't match.");
     setBusy(true);
     try {
@@ -114,7 +116,7 @@ export default function UnlockSetupScreen() {
           <Text style={styles.emoji}>🔢</Text>
           <Text style={styles.title}>{status?.hasPin ? 'Change your PIN' : 'Choose a PIN'}</Text>
           <Text style={styles.subtitle}>
-            This stops the alarm if your fingerprint or face ever doesn't work. Pick 4 to 8 numbers you'll remember.
+            This stops the alarm if your fingerprint or face ever doesn't work. Pick 4 to 8 numbers you'll remember — and make it different from your phone's lock screen code, which can't stop the alarm.
           </Text>
 
           {status?.hasPin && (
