@@ -4,7 +4,6 @@ import React, { useEffect } from 'react';
 import { Alert, NativeModules,
   Image,
   Pressable,
-  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -60,7 +59,6 @@ export default function DashboardTab() {
     <ScrollView
       style={styles.container}
       contentContainerStyle={styles.content}
-      refreshControl={<RefreshControl refreshing={false} onRefresh={() => {}} tintColor={colors.gold} />}
     >
       {/* Stats Row */}
       <View style={styles.statsRow}>
