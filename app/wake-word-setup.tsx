@@ -17,6 +17,20 @@ const { WakeWordModule } = NativeModules;
 
 const CONVEX_SITE_URL = process.env.EXPO_PUBLIC_CONVEX_SITE_URL || 'https://cheery-buffalo-947.convex.site';
 
+// Android sometimes never answers a permission request (another dialog in
+// the way, two requests at once, OEM quirks), and the promise then hangs
+// forever. Every request here gets a deadline so setup always moves on.
+function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error(label + ' timed out')), ms);
+    p.then((v) => { clearTimeout(t); resolve(v); }, (e) => { clearTimeout(t); reject(e); });
+  });
+}
+
+// Guards against this screen running setup twice at the same time (e.g. if
+// it's ever mounted twice). Reset when a run finishes so Retry still works.
+let setupRunning = false;
+
 function logStep(message: string, level: string = 'info') {
   fetch(`${CONVEX_SITE_URL}/logDebug`, {
     method: 'POST',
@@ -50,12 +64,21 @@ export default function WakeWordSetupScreen() {
     // mic, phone_state, and device_admin now happen post-login instead, in
     // device-setup.tsx.
     try {
-      logStep('location_foreground: requesting');
-      const { status: fgStatus } = await Location.requestForegroundPermissionsAsync();
+      // Check first: no dialog needed if it's already granted.
+      let fgStatus = (await withTimeout(Location.getForegroundPermissionsAsync(), 5000, 'location_foreground check')).status;
+      if (fgStatus !== 'granted') {
+        logStep('location_foreground: requesting');
+        fgStatus = (await withTimeout(Location.requestForegroundPermissionsAsync(), 30000, 'location_foreground')).status;
+      }
       logStep('location_foreground: done, status=' + fgStatus);
       if (fgStatus === 'granted') {
-        logStep('location_background: requesting');
-        const { status: bgStatus } = await Location.requestBackgroundPermissionsAsync();
+        let bgStatus = (await withTimeout(Location.getBackgroundPermissionsAsync(), 5000, 'location_background check')).status;
+        if (bgStatus !== 'granted') {
+          logStep('location_background: requesting');
+          // On Android 11+ this sends the user to Settings ("Allow all the
+          // time"); if they never come back, don't block the model download.
+          bgStatus = (await withTimeout(Location.requestBackgroundPermissionsAsync(), 60000, 'location_background')).status;
+        }
         logStep('location_background: done, status=' + bgStatus);
         if (bgStatus === 'granted') {
           await startBackgroundLocationTracking();
@@ -84,19 +107,29 @@ export default function WakeWordSetupScreen() {
   }
 
   async function checkAndSetup() {
+    if (setupRunning) {
+      logStep('checkAndSetup: already running, skipped duplicate');
+      return;
+    }
+    setupRunning = true;
+    setStatus('checking');
+    setError('');
     try {
       await requestLocationPermission();
 
       if (!WakeWordModule) {
+        setupRunning = false;
         router.replace('/auth');
         return;
       }
 
-      const ready = await WakeWordModule.isModelReady();
+      const ready = await withTimeout<boolean>(WakeWordModule.isModelReady(), 15000, 'isModelReady');
+      logStep('isModelReady: ' + ready);
       if (ready) {
         await ensureSpeakerModel();
         setStatus('ready');
         await SecureStore.setItemAsync('wake_word_setup_done', 'true');
+        setupRunning = false;
         setTimeout(() => router.replace('/auth'), 1000);
       } else {
         setStatus('downloading');
@@ -108,16 +141,24 @@ export default function WakeWordSetupScreen() {
             await ensureSpeakerModel();
             setStatus('ready');
             await SecureStore.setItemAsync('wake_word_setup_done', 'true');
+            setupRunning = false;
             setTimeout(() => router.replace('/auth'), 1500);
           })
           .catch((err: { message: string }) => {
             progressSub.remove();
+            setupRunning = false;
+            logStep('downloadModel FAILED: ' + (err?.message ?? 'unknown'), 'error');
             setStatus('error');
             setError(err.message ?? 'Download failed');
           });
       }
     } catch (e: any) {
-      router.replace('/auth');
+      // Something hung or threw before the download could start. Show
+      // Retry / Skip instead of silently skipping the voice model.
+      setupRunning = false;
+      logStep('checkAndSetup FAILED: ' + (e?.message ?? String(e)), 'error');
+      setStatus('error');
+      setError(e?.message ?? 'Setup could not finish');
     }
   }
 
@@ -153,7 +194,7 @@ export default function WakeWordSetupScreen() {
 
       {status === 'error' && (
         <>
-          <Text style={styles.errorText}>⚠️ Download failed</Text>
+          <Text style={styles.errorText}>⚠️ Setup didn't finish</Text>
           <Text style={styles.hint}>{error}</Text>
           <Pressable style={styles.retryBtn} onPress={checkAndSetup}>
             <Text style={styles.retryText}>Retry</Text>

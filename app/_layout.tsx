@@ -168,14 +168,19 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
   // ── Wake word setup check ─────────────────────────────────────────────────
   // Runs independent of auth state entirely — permissions + Vosk download
   // happen before we know or care whether someone's logged in.
+  // The ref stops this running twice: segments can change before the
+  // SecureStore read finishes, and two router.replace calls mounted TWO
+  // setup screens, whose simultaneous permission requests hung forever.
+  const setupCheckStarted = useRef(false);
   useEffect(() => {
-    if (setupChecked) return;
+    if (setupChecked || setupCheckStarted.current) return;
 
     const inWakeWordSetup = segments[0] === 'wake-word-setup';
     const inLockout = segments[0] === 'lockout';
 
     if (inWakeWordSetup || inLockout) return;
 
+    setupCheckStarted.current = true;
     SecureStore.getItemAsync('wake_word_setup_done').then((done) => {
       setSetupChecked(true);
       if (done !== 'true') {
