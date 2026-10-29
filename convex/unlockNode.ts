@@ -5,6 +5,7 @@ import { action } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
+import { pinProblem } from "./pinRules";
 import { createPublicKey, pbkdf2Sync, randomBytes, timingSafeEqual, verify } from "node:crypto";
 
 // Crypto side of secure unlock (Node.js runtime, node:crypto).
@@ -125,7 +126,8 @@ export const setPin = action({
   handler: async (ctx, args): Promise<PinResult> => {
     const userId = await getAuthUserId(ctx);
     if (!userId) throw new Error("Not authenticated");
-    if (!PIN_REGEX.test(args.pin)) throw new Error("PIN must be 4 to 8 digits");
+    const problem = pinProblem(args.pin);
+    if (problem) throw new Error(problem);
 
     const existing: { salt: string; hash: string; iterations: number } | null = await ctx.runQuery(internal.unlock.getPinRecord, { userId });
     if (existing) {

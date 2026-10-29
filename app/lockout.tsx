@@ -81,8 +81,12 @@ export default function LockoutScreen() {
       .catch(() => {});
   }, []);
   const biometricLabel = biometricType === 'none'
-    ? 'your screen lock'
+    ? 'your My-Phone PIN'
     : BiometricAuth.getBiometricLabel(biometricType);
+
+  // No usable fingerprint key on this phone (e.g. no sensor) → go straight
+  // to the My-Phone PIN instead of a button that can't work.
+  const pinOnly = !!unlockStatus && unlockStatus.hasPin && !(unlockStatus.hasKey && DeviceKey.isSupported());
 
   // No escape: the hardware back button does nothing while locked out.
   useEffect(() => {
@@ -112,6 +116,7 @@ export default function LockoutScreen() {
     // Slide up biometric panel
     setShowBiometric(true);
     setAuthError(null);
+    if (pinOnly) setShowPin(true);
     Animated.spring(slideAnim, {
       toValue: 1,
       useNativeDriver: true,
@@ -148,15 +153,18 @@ export default function LockoutScreen() {
       } else if (unlockStatus.hasPin) {
         setShowPin(true);
       } else {
-        // Secure unlock not set up yet: legacy on-device check, so an
-        // owner who skipped setup is never trapped by the siren.
+        // No My-Phone PIN yet (older account that hasn't been through
+        // PIN setup). Fingerprint/face only -- the phone's screen-lock
+        // code never works here.
         const result = await BiometricAuth.authenticateForUnlock(deviceName);
         if (result.success) {
           await biometricUnlock({ deviceId });
           return finishUnlock();
         }
         if (result.errorCode === 'lockout') setAuthError('Too many failed attempts. Wait 30 seconds and try again.');
-        else if (result.errorCode !== 'user_cancel') setAuthError(result.error || 'Authentication failed. Please try again.');
+        else if (result.errorCode === 'not_enrolled' || result.errorCode === 'not_available') {
+          setAuthError('No fingerprint or My-Phone PIN is set up. Stop the alarm from another phone signed into your account.');
+        } else if (result.errorCode !== 'user_cancel') setAuthError(result.error || 'Authentication failed. Please try again.');
       }
     } catch (err: any) {
       if (err instanceof SignError) {
@@ -306,7 +314,7 @@ export default function LockoutScreen() {
               >
                 <Text style={styles.unlockButtonText}>{isAuthenticating ? '⏳ Checking...' : 'Unlock with PIN'}</Text>
               </TouchableOpacity>
-              {unlockStatus?.hasKey && (
+              {unlockStatus?.hasKey && DeviceKey.isSupported() && (
                 <TouchableOpacity style={styles.cancelButton} onPress={() => { setShowPin(false); setAuthError(null); }}>
                   <Text style={styles.cancelButtonText}>Use fingerprint instead</Text>
                 </TouchableOpacity>
